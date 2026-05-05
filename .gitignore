@@ -1,0 +1,35 @@
+# venv
+.venv/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.ipynb_checkpoints/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# 数据缓存（大文件不进 git）
+data_cache/*.parquet
+data_cache/*.csv
+data_cache/*.feather
+
+# outputs / reports 里的中间产物
+outputs/*.png
+outputs/*.html
+outputs/*.csv
+outputs/*.parquet
+
+# 系统 & IDE
+.DS_Store
+.vscode/
+.idea/
+
+# 密钥（tushare token 等）
+.env
+*.token
+config.local.*

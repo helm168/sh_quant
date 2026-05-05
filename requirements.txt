@@ -1,0 +1,27 @@
+# 核心数据 / 计算
+numpy>=1.26
+pandas>=2.2
+pyarrow>=15.0          # parquet I/O
+scipy>=1.11
+
+# 行情接口
+tushare>=1.4
+
+# 可视化
+matplotlib>=3.8
+seaborn>=0.13
+plotly>=5.20
+
+# Notebook
+jupyter>=1.0
+jupyterlab>=4.1
+ipykernel>=6.29
+ipywidgets>=8.1
+
+# 工程辅助
+python-dotenv>=1.0     # 读 .env 里的 tushare token
+tqdm>=4.66
+
+# 后续阶段会用到（先装好，避免来回切环境）
+statsmodels>=0.14
+scikit-learn>=1.4
