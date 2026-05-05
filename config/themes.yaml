@@ -18,15 +18,52 @@ themes:
 
   ai_compute:
     name: AI 算力 / 芯片
-    desc: 国产 GPU / NPU、HBM、CoWoS 封装、PCB 高多层板、光通信。受益于 AI 训练/推理需求爆发 + 国产替代。
+    desc: |
+      国产算力链：GPU/AI 芯片 + HBM/存储 + 先进封装 + 服务器 PCB + 光通信 + 服务器 ODM。
+      受益于 AI 训练/推理需求 + 国产替代。
     stocks:
-      - {code: 688256.SH, name: 寒武纪}
-      - {code: 688041.SH, name: 海光信息}
-      - {code: 688008.SH, name: 澜起科技}
-      - {code: 603501.SH, name: 韦尔股份}
-      - {code: 300308.SZ, name: 中际旭创}        # 光通信 / 800G
-      - {code: 601138.SH, name: 工业富联}        # AI 服务器 ODM
-      # TODO 补充：GPU 链 / HBM / 封测 / PCB / 液冷 / 光模块 / 服务器 ODM 子方向
+      # ── GPU / 算力芯片 ──
+      - {code: 688256.SH, name: 寒武纪}            # NPU 国产龙头
+      - {code: 688041.SH, name: 海光信息}          # x86 CPU + DCU GPU
+      - {code: 300474.SZ, name: 景嘉微}            # 国产 GPU 老牌
+      - {code: 688047.SH, name: 龙芯中科}          # 自主指令集 CPU
+      - {code: 688262.SH, name: 国芯科技}          # 车规 / 嵌入式 AI
+
+      # ── HBM / 存储 / 内存接口 ──
+      - {code: 688008.SH, name: 澜起科技}          # DDR5 / MXC 内存接口
+      - {code: 603986.SH, name: 兆易创新}          # NOR / NAND
+      - {code: 300223.SZ, name: 北京君正}          # 车规 / 推理存储
+      - {code: 301308.SZ, name: 江波龙}            # 存储模组
+      - {code: 300475.SZ, name: 香农芯创}          # SK Hynix HBM 国内分销
+      - {code: 002409.SZ, name: 雅克科技}          # HBM 前驱体材料
+
+      # ── 封测 / 先进封装（CoWoS-like）──
+      - {code: 002156.SZ, name: 通富微电}          # AMD / 海光封装合作伙伴
+      - {code: 600584.SH, name: 长电科技}          # 封测龙头
+      - {code: 002185.SZ, name: 华天科技}          # 封测
+      - {code: 688362.SH, name: 甬矽电子}          # 先进封装
+      - {code: 002436.SZ, name: 兴森科技}          # IC 载板
+
+      # ── PCB / 服务器主板（高多层 / HDI / 高频高速）──
+      - {code: 002463.SZ, name: 沪电股份}          # AI 服务器 PCB
+      - {code: 002916.SZ, name: 深南电路}          # PCB 龙头
+      - {code: 300476.SZ, name: 胜宏科技}          # HDI / AI 加速卡
+      - {code: 600183.SH, name: 生益科技}          # 高频高速覆铜板 (CCL)
+      - {code: 002938.SZ, name: 鹏鼎控股}          # PCB
+
+      # ── 光通信 / 光模块（800G / 1.6T）──
+      - {code: 300308.SZ, name: 中际旭创}          # 800G 龙头
+      - {code: 300502.SZ, name: 新易盛}            # 800G / 1.6T
+      - {code: 300394.SZ, name: 天孚通信}          # 光器件 / 上游
+      - {code: 300570.SZ, name: 太辰光}            # 光无源器件
+      - {code: 002281.SZ, name: 光迅科技}          # 老牌国产光器件
+
+      # ── 服务器 ODM / 液冷 ──
+      - {code: 601138.SH, name: 工业富联}          # AI 服务器 ODM 龙头
+      - {code: 000977.SZ, name: 浪潮信息}          # AI 服务器
+      - {code: 603019.SH, name: 中科曙光}          # 海光母公司
+      - {code: 000938.SZ, name: 紫光股份}          # 新华三 H3C
+      - {code: 002261.SZ, name: 拓维信息}          # 鲲鹏 / 升腾
 
   semi_equipment:
     name: 半导体设备 / 材料
