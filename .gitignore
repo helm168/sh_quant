@@ -13,16 +13,13 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 
-# 数据缓存（大文件不进 git）
-data_cache/*.parquet
-data_cache/*.csv
-data_cache/*.feather
+# 数据缓存（大文件不进 git；保留 .gitkeep 以让空目录入库）
+data_cache/*
+!data_cache/.gitkeep
 
-# outputs / reports 里的中间产物
-outputs/*.png
-outputs/*.html
-outputs/*.csv
-outputs/*.parquet
+# outputs 中间产物（图、临时 csv 等）；保留 .gitkeep
+outputs/*
+!outputs/.gitkeep
 
 # 系统 & IDE
 .DS_Store
