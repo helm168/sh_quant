@@ -41,7 +41,24 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 THEMES_YAML = PROJECT_ROOT / "config" / "themes.yaml"
 CACHE_DIR = PROJECT_ROOT / "data_cache" / "stocks"
 
+# 当前缓存 schema 必须包含的列（缺任一列视为 stale，触发重拉）
+REQUIRED_COLUMNS = ("trade_date", "open", "close", "adj_factor")
+
 PERMISSION_KEYWORDS = ("40203", "权限", "积分", "permission")
+
+
+def is_stale(path: Path) -> bool:
+    """缓存 parquet 是否需要重拉。
+
+    旧版（commit be6f66f 之前）只存 qfq 调整后的价格，没有 adj_factor 列；
+    新版必须有 adj_factor。schema 检查比文件 mtime 更可靠，未来加列也兼容。
+    """
+    try:
+        import pyarrow.parquet as pq  # noqa: WPS433
+        names = set(pq.read_schema(path).names)
+    except Exception:
+        return True   # 损坏 / 无法读取 → 重拉
+    return any(c not in names for c in REQUIRED_COLUMNS)
 
 
 class PermissionError_(RuntimeError):
@@ -157,12 +174,17 @@ def main() -> None:
     print("拉 raw daily + adj_factor，复权由 utils/data.py 在读取时按需计算\n")
 
     failed: list[tuple[str, str, str]] = []
+    stale_count = 0
     width = len(str(n))
     for i, (code, name) in enumerate(universe, 1):
         out = CACHE_DIR / f"{code}.parquet"
         if out.exists() and not args.force:
-            print(f"  [{i:>{width}}/{n}] skip  {code} {name}  (已缓存)")
-            continue
+            if is_stale(out):
+                stale_count += 1
+                print(f"  [{i:>{width}}/{n}] stale {code} {name}  (旧 schema，重拉)")
+            else:
+                print(f"  [{i:>{width}}/{n}] skip  {code} {name}  (已缓存)")
+                continue
         try:
             df = fetch_one(pro, code, args.start, args.end)
             if df.empty:
@@ -185,6 +207,8 @@ def main() -> None:
         time.sleep(args.sleep)
 
     print()
+    if stale_count:
+        print(f"识别并升级了 {stale_count} 个旧 schema 缓存。")
     if failed:
         print(f"{len(failed)} 个失败/空：")
         for code, name, err in failed[:30]:
