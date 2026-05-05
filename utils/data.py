@@ -6,6 +6,15 @@
     - trade_date 排序、列名标准化
 """
 
+from dotenv import load_dotenv
+import tushare as ts
+import os
+
+load_dotenv()
+token = os.getenv('TUSHARE_TOKEN')
+ts.set_token(token)
+
 # TODO(week1): implement load_daily()
 def load_daily(ts_code: str, start: str, end: str, adj: str = "qfq"):
+    
     raise NotImplementedError("week1: data layer not implemented yet")
