@@ -23,7 +23,11 @@
 sh_quant/
 ├── notebooks/        # 每个研究问题一个 .ipynb（探索 / 实验 / 写结论）
 ├── utils/            # 复用工具库（data / backtest / metrics / plot / signals）
-├── data_cache/       # 本地 parquet 缓存，不进 git
+├── scripts/          # 一次性脚本（数据 bulk pull、probe、迁移）；不被 utils/notebooks import
+├── data_cache/       # 本地 parquet 缓存，不进 git；按维度分子目录
+│   ├── sw_l1/        #   申万一级行业 31 份日线
+│   ├── sw_l2/        #   申万二级行业 124 份日线
+│   └── ...
 ├── outputs/          # 图、临时 csv、报告产物
 ├── reports/          # 月报、复盘文档
 ├── docs/             # 投资方法论、风控规则等长文档
@@ -37,8 +41,16 @@ sh_quant/
 
 - 稳定 / 可复用的逻辑沉淀进 `utils/*.py`，notebook 里 `from utils.X import Y` 调用。
 - 一次性的探索 / 实验 / 画图 / 写结论放在 `notebooks/*.ipynb`。
+- **一次性的 bulk pull / probe / 迁移脚本** 放 `scripts/*.py`，独立可运行（`python scripts/xxx.py`），**不**被 `utils/` 或 notebook import。例：`scripts/pull_sw_industries.py` 一次性把申万 L1/L2/L3 全行业日线落盘。
 - 同一段代码在两个 notebook 里出现第二次时，立刻搬进 `utils/`。
 - 每个 notebook 顶部的 markdown cell 必写：研究问题 / 关键参数 / 结论。3 个月后回头看不会懵。
+
+### `scripts/` 子目录的小约定
+
+- 文件名描述行为：`pull_*` / `probe_*` / `migrate_*`。
+- 顶部 docstring 必写：用途 / 依赖 / 用法示例 / 输出位置。
+- token 等敏感信息从 `.env` 读，不要让用户 export 环境变量；**没 token 直接报错退出**，不要静默继续。
+- 不要造抽象，`fetch(...)` 直接走完。一次性脚本不写 SDK 封装。
 
 ## 数据源
 
