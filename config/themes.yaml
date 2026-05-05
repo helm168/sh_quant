@@ -58,6 +58,10 @@ themes:
       - {code: 688608.SH, name: 恒玄科技, subtrack: chip}
       - {code: 688049.SH, name: 炬芯科技, subtrack: chip}
       - {code: 688262.SH, name: 国芯科技, subtrack: chip}
+      - {code: 688018.SH, name: 乐鑫科技, subtrack: chip}
+      - {code: 688213.SH, name: 思特威-W, subtrack: chip}
+      - {code: 300672.SZ, name: 国科微, subtrack: chip}
+      - {code: 688515.SH, name: 裕太微-U, subtrack: chip}
 
       # memory
       - {code: 688008.SH, name: 澜起科技, subtrack: memory}
@@ -68,6 +72,9 @@ themes:
       - {code: 688110.SH, name: 东芯股份, subtrack: memory}
       - {code: 688525.SH, name: 佰维存储, subtrack: memory}
       - {code: 301348.SZ, name: 蓝箭电子, subtrack: memory}
+      - {code: 688123.SH, name: 聚辰股份, subtrack: memory}
+      - {code: 688766.SH, name: 普冉股份, subtrack: memory}
+      - {code: 001309.SZ, name: 德明利, subtrack: memory}
 
       # packaging
       - {code: 002156.SZ, name: 通富微电, subtrack: packaging}
@@ -81,6 +88,9 @@ themes:
       - {code: 002409.SZ, name: 雅克科技, subtrack: packaging}
       - {code: 600206.SH, name: 有研新材, subtrack: packaging}
       - {code: 603650.SH, name: 彤程新材, subtrack: packaging}
+      - {code: 688535.SH, name: 华海诚科, subtrack: packaging}
+      - {code: 603005.SH, name: 晶方科技, subtrack: packaging}
+      - {code: 688135.SH, name: 利扬芯片, subtrack: packaging}
 
       # server
       - {code: 601138.SH, name: 工业富联, subtrack: server}
@@ -89,12 +99,19 @@ themes:
       - {code: 000938.SZ, name: 紫光股份, subtrack: server}
       - {code: 002261.SZ, name: 拓维信息, subtrack: server}
       - {code: 000066.SZ, name: 中国长城, subtrack: server}
+      - {code: 000034.SZ, name: 神州数码, subtrack: server}
+      - {code: 600100.SH, name: 同方股份, subtrack: server}
+      - {code: 600839.SH, name: 四川长虹, subtrack: server}
 
       # network
       - {code: 300017.SZ, name: 网宿科技, subtrack: network}
       - {code: 000063.SZ, name: 中兴通讯, subtrack: network}
       - {code: 300913.SZ, name: 兆龙互连, subtrack: network}
       - {code: 301202.SZ, name: 朗威股份, subtrack: network}
+      - {code: 002396.SZ, name: 星网锐捷, subtrack: network}
+      - {code: 301165.SZ, name: 锐捷网络, subtrack: network}
+      - {code: 301191.SZ, name: 菲菱科思, subtrack: network}
+      - {code: 688702.SH, name: 盛科通信-U, subtrack: network}
 
       # optical
       - {code: 300308.SZ, name: 中际旭创, subtrack: optical}
@@ -104,7 +121,9 @@ themes:
       - {code: 002281.SZ, name: 光迅科技, subtrack: optical}
       - {code: 688313.SH, name: 仕佳光子, subtrack: optical}
       - {code: 688498.SH, name: 源杰科技, subtrack: optical}
-      - {code: 300548.SZ, name: 博创科技, subtrack: optical}
+      - {code: 300548.SZ, name: 长芯博创, subtrack: optical}
+      - {code: 301205.SZ, name: 联特科技, subtrack: optical}
+      - {code: 300620.SZ, name: 光库科技, subtrack: optical}
 
       # pcb
       - {code: 002463.SZ, name: 沪电股份, subtrack: pcb}
@@ -113,11 +132,19 @@ themes:
       - {code: 002938.SZ, name: 鹏鼎控股, subtrack: pcb}
       - {code: 603228.SH, name: 景旺电子, subtrack: pcb}
       - {code: 002384.SZ, name: 东山精密, subtrack: pcb}
+      - {code: 002815.SZ, name: 崇达技术, subtrack: pcb}
+      - {code: 002579.SZ, name: 中京电子, subtrack: pcb}
+      - {code: 688183.SH, name: 生益电子, subtrack: pcb}
 
       # connector
       - {code: 002179.SZ, name: 中航光电, subtrack: connector}
       - {code: 300679.SZ, name: 电连技术, subtrack: connector}
       - {code: 300843.SZ, name: 胜蓝股份, subtrack: connector}
+      - {code: 688800.SH, name: 瑞可达, subtrack: connector}
+      - {code: 688668.SH, name: 鼎通科技, subtrack: connector}
+      - {code: 688629.SH, name: 华丰科技, subtrack: connector}
+      - {code: 300351.SZ, name: 永贵电器, subtrack: connector}
+      - {code: 002130.SZ, name: 沃尔核材, subtrack: connector}
 
   ai_data_center_power:
     name: AI 数据中心 / 电源散热
@@ -141,6 +168,8 @@ themes:
       - {code: 002126.SZ, name: 银轮股份, subtrack: cooling}
       - {code: 603757.SH, name: 大元泵业, subtrack: cooling}
       - {code: 002050.SZ, name: 三花智控, subtrack: cooling}
+      - {code: 300249.SZ, name: 依米康, subtrack: cooling}
+      - {code: 603269.SH, name: 海鸥股份, subtrack: cooling}
 
       # power
       - {code: 002335.SZ, name: 科华数据, subtrack: power}
@@ -149,7 +178,7 @@ themes:
       - {code: 300693.SZ, name: 盛弘股份, subtrack: power}
       - {code: 002851.SZ, name: 麦格米特, subtrack: power}
       - {code: 300870.SZ, name: 欧陆通, subtrack: power}
-      - {code: 002227.SZ, name: 奥特迅, subtrack: power}
+      - {code: 002364.SZ, name: 中恒电气, subtrack: power}
       - {code: 300713.SZ, name: 英可瑞, subtrack: power}
       - {code: 300491.SZ, name: 通合科技, subtrack: power}
       - {code: 688676.SH, name: 金盘科技, subtrack: power}
@@ -167,7 +196,7 @@ themes:
       - {code: 600580.SH, name: 卧龙电驱, subtrack: distribution_backup}
       - {code: 300750.SZ, name: 宁德时代, subtrack: distribution_backup}
       - {code: 300274.SZ, name: 阳光电源, subtrack: distribution_backup}
-      - {code: 300068.SZ, name: 南都电源, subtrack: distribution_backup}
+      - {code: 002580.SZ, name: 圣阳股份, subtrack: distribution_backup}
 
       # idc_cloud
       - {code: 600845.SH, name: 宝信软件, subtrack: idc_cloud}
@@ -177,7 +206,7 @@ themes:
       - {code: 300442.SZ, name: 润泽科技, subtrack: idc_cloud}
       - {code: 300895.SZ, name: 铜牛信息, subtrack: idc_cloud}
       - {code: 300846.SZ, name: 首都在线, subtrack: idc_cloud}
-      - {code: 688158.SH, name: 优刻得, subtrack: idc_cloud}
+      - {code: 688158.SH, name: 优刻得-W, subtrack: idc_cloud}
       - {code: 000158.SZ, name: 常山北明, subtrack: idc_cloud}
       - {code: 002230.SZ, name: 科大讯飞, subtrack: idc_cloud}
       - {code: 300624.SZ, name: 万兴科技, subtrack: idc_cloud}
@@ -199,9 +228,11 @@ themes:
       - {code: 688347.SH, name: 华虹公司, subtrack: foundry}
       - {code: 688249.SH, name: 晶合集成, subtrack: foundry}
       - {code: 600460.SH, name: 士兰微, subtrack: foundry}
-      - {code: 002371.SZ, name: 北方华创, subtrack: foundry}    # 注：本质为设备，沿用你这里的分组
+      - {code: 688396.SH, name: 华润微, subtrack: foundry}
+      - {code: 688469.SH, name: 芯联集成-U, subtrack: foundry}
 
       # equipment
+      - {code: 002371.SZ, name: 北方华创, subtrack: equipment}
       - {code: 688012.SH, name: 中微公司, subtrack: equipment}
       - {code: 688072.SH, name: 拓荆科技, subtrack: equipment}
       - {code: 688120.SH, name: 华海清科, subtrack: equipment}
@@ -213,7 +244,7 @@ themes:
       - {code: 603690.SH, name: 至纯科技, subtrack: equipment}
       - {code: 688200.SH, name: 华峰测控, subtrack: equipment}
       - {code: 688027.SH, name: 国盾量子, subtrack: equipment}
-      - {code: 600641.SH, name: 万业企业, subtrack: equipment}
+      - {code: 600641.SH, name: 先导基电, subtrack: equipment}
       - {code: 688147.SH, name: 微导纳米, subtrack: equipment}
 
       # materials
@@ -246,7 +277,7 @@ themes:
       - {code: 300661.SZ, name: 圣邦股份, subtrack: eda_design}
       - {code: 688099.SH, name: 晶晨股份, subtrack: eda_design}
       - {code: 688595.SH, name: 芯海科技, subtrack: eda_design}
-      - {code: 688220.SH, name: 翱捷科技, subtrack: eda_design}
+      - {code: 688220.SH, name: 翱捷科技-U, subtrack: eda_design}
 
       # packaging
       - {code: 600584.SH, name: 长电科技, subtrack: packaging}
@@ -254,6 +285,11 @@ themes:
       - {code: 002185.SZ, name: 华天科技, subtrack: packaging}
       - {code: 688362.SH, name: 甬矽电子, subtrack: packaging}
       - {code: 002436.SZ, name: 兴森科技, subtrack: packaging}
+      - {code: 603005.SH, name: 晶方科技, subtrack: packaging}
+      - {code: 688535.SH, name: 华海诚科, subtrack: packaging}
+      - {code: 688135.SH, name: 利扬芯片, subtrack: packaging}
+      - {code: 688216.SH, name: 气派科技, subtrack: packaging}
+      - {code: 688372.SH, name: 伟测科技, subtrack: packaging}
 
   consumer_electronics:
     name: 消费电子
@@ -281,7 +317,7 @@ themes:
       - {code: 002681.SZ, name: 奋达科技}
       - {code: 300735.SZ, name: 光弘科技}
       - {code: 300088.SZ, name: 长信科技}
-      - {code: 002055.SZ, name: 得润电子}
+      - {code: 002635.SZ, name: 安洁科技}
       - {code: 300083.SZ, name: 创世纪}
       - {code: 688608.SH, name: 恒玄科技}
       - {code: 688049.SH, name: 炬芯科技}
@@ -316,14 +352,14 @@ themes:
       - {code: 301368.SZ, name: 丰立智能}
       - {code: 603667.SH, name: 五洲新春}
       - {code: 300718.SZ, name: 长盛轴承}
-      - {code: 000821.SZ, name: 京山轻机}
+      - {code: 300161.SZ, name: 华中数控}
       - {code: 002031.SZ, name: 巨轮智能}
       - {code: 300580.SZ, name: 贝斯特}
       - {code: 002559.SZ, name: 亚威股份}
-      - {code: 688165.SH, name: 埃夫特}
+      - {code: 688165.SH, name: 埃夫特-U}
       - {code: 688188.SH, name: 柏楚电子}
       - {code: 688686.SH, name: 奥普特}
-      - {code: 688322.SH, name: 奥比中光}
+      - {code: 688322.SH, name: 奥比中光-W}
       - {code: 300007.SZ, name: 汉威科技}
       - {code: 002139.SZ, name: 拓邦股份}
       - {code: 002008.SZ, name: 大族激光}
@@ -343,12 +379,12 @@ themes:
       # evtol_uav
       - {code: 688297.SH, name: 中无人机, subtrack: evtol_uav}
       - {code: 002085.SZ, name: 万丰奥威, subtrack: evtol_uav}
+      - {code: 000099.SZ, name: 中信海直, subtrack: evtol_uav}
+      - {code: 001696.SZ, name: 宗申动力, subtrack: evtol_uav}
       - {code: 002097.SZ, name: 山河智能, subtrack: evtol_uav}
-      - {code: 300159.SZ, name: 新研股份, subtrack: evtol_uav}
       - {code: 300900.SZ, name: 广联航空, subtrack: evtol_uav}
       - {code: 300424.SZ, name: 航新科技, subtrack: evtol_uav}
       - {code: 002829.SZ, name: 星网宇达, subtrack: evtol_uav}
-      - {code: 300091.SZ, name: 金通灵, subtrack: evtol_uav}
       - {code: 300411.SZ, name: 金盾股份, subtrack: evtol_uav}
 
       # navigation
@@ -362,6 +398,7 @@ themes:
       - {code: 300627.SZ, name: 华测导航, subtrack: navigation}
       - {code: 688568.SH, name: 中科星图, subtrack: navigation}
       - {code: 300036.SZ, name: 超图软件, subtrack: navigation}
+      - {code: 000801.SZ, name: 四川九洲, subtrack: navigation}
 
       # satellite_rocket
       - {code: 600879.SH, name: 航天电子, subtrack: satellite_rocket}
@@ -399,15 +436,15 @@ themes:
       - {code: 600884.SH, name: 杉杉股份}
       - {code: 603659.SH, name: 璞泰来}
       - {code: 688005.SH, name: 容百科技}
-      - {code: 688779.SH, name: 长远锂科}
-      - {code: 300919.SZ, name: 中伟股份}
+      - {code: 688779.SH, name: 五矿新能}
+      - {code: 300919.SZ, name: 中伟新材}
       - {code: 300769.SZ, name: 德方纳米}
       - {code: 002074.SZ, name: 国轩高科}
       - {code: 601689.SH, name: 拓普集团}
       - {code: 600699.SH, name: 均胜电子}
       - {code: 002920.SZ, name: 德赛西威}
       - {code: 300001.SZ, name: 特锐德}
-      - {code: 002227.SZ, name: 奥特迅}
+      - {code: 002364.SZ, name: 中恒电气}
       - {code: 300124.SZ, name: 汇川技术}
       - {code: 600660.SH, name: 福耀玻璃}
       - {code: 601633.SH, name: 长城汽车}
@@ -431,14 +468,14 @@ themes:
       - {code: 688005.SH, name: 容百科技}
       - {code: 300073.SZ, name: 当升科技}
       - {code: 300769.SZ, name: 德方纳米}
-      - {code: 300919.SZ, name: 中伟股份}
+      - {code: 300919.SZ, name: 中伟新材}
       - {code: 002709.SZ, name: 天赐材料}
       - {code: 300037.SZ, name: 新宙邦}
       - {code: 603659.SH, name: 璞泰来}
       - {code: 600884.SH, name: 杉杉股份}
       - {code: 300035.SZ, name: 中科电气}
       - {code: 300890.SZ, name: 翔丰华}
-      - {code: 835185.BJ, name: 贝特瑞}
+      - {code: 001301.SZ, name: 尚太科技}
       - {code: 300450.SZ, name: 先导智能}
       - {code: 688006.SH, name: 杭可科技}
       - {code: 688155.SH, name: 先惠技术}
@@ -495,7 +532,7 @@ themes:
       - {code: 300274.SZ, name: 阳光电源}
       - {code: 300750.SZ, name: 宁德时代}
       - {code: 600884.SH, name: 杉杉股份}
-      - {code: 300068.SZ, name: 南都电源}
+      - {code: 002580.SZ, name: 圣阳股份}
       - {code: 002335.SZ, name: 科华数据}
       - {code: 002518.SZ, name: 科士达}
       - {code: 300693.SZ, name: 盛弘股份}
@@ -537,7 +574,7 @@ themes:
       - {code: 601179.SH, name: 中国西电}
       - {code: 600089.SH, name: 特变电工}
       - {code: 601126.SH, name: 四方股份}
-      - {code: 601567.SH, name: 三星医疗}
+      - {code: 601567.SH, name: 三星电气}
       - {code: 300360.SZ, name: 炬华科技}
       - {code: 002339.SZ, name: 积成电子}
       - {code: 002090.SZ, name: 金智科技}
@@ -586,17 +623,17 @@ themes:
       - {code: 300122.SZ, name: 智飞生物}
       - {code: 688331.SH, name: 荣昌生物}
       - {code: 688506.SH, name: 百利天恒}
-      - {code: 688266.SH, name: 泽璟制药}
+      - {code: 688266.SH, name: 泽璟制药-U}
       - {code: 688578.SH, name: 艾力斯}
-      - {code: 688180.SH, name: 君实生物}
+      - {code: 688180.SH, name: 君实生物-U}
       - {code: 688321.SH, name: 微芯生物}
       - {code: 688520.SH, name: 神州细胞}
-      - {code: 688221.SH, name: 前沿生物}
+      - {code: 688221.SH, name: 前沿生物-U}
       - {code: 688336.SH, name: 三生国健}
-      - {code: 688382.SH, name: 益方生物}
-      - {code: 688197.SH, name: 首药控股}
-      - {code: 688192.SH, name: 迪哲医药}
-      - {code: 688062.SH, name: 迈威生物}
+      - {code: 688382.SH, name: 益方生物-U}
+      - {code: 688197.SH, name: 首药控股-U}
+      - {code: 688192.SH, name: 迪哲医药-U}
+      - {code: 688062.SH, name: 迈威生物-U}
       - {code: 300558.SZ, name: 贝达药业}
       - {code: 300759.SZ, name: 康龙化成}
       - {code: 603259.SH, name: 药明康德}
@@ -676,10 +713,10 @@ themes:
       - {code: 000729.SZ, name: 燕京啤酒}
       - {code: 002461.SZ, name: 珠江啤酒}
       - {code: 002568.SZ, name: 百润股份}
-      - {code: 000869.SZ, name: 张裕A}
+      - {code: 000869.SZ, name: 张裕Ａ}
       - {code: 600059.SH, name: 古越龙山}
       - {code: 601579.SH, name: 会稽山}
-      - {code: 600238.SH, name: 海南椰岛}
+      - {code: 603711.SH, name: 香飘飘}
       - {code: 600189.SH, name: 泉阳泉}
       - {code: 000848.SZ, name: 承德露露}
       - {code: 605089.SH, name: 味知香}
@@ -784,7 +821,7 @@ themes:
       - {code: 688066.SH, name: 航天宏图}
       - {code: 300581.SZ, name: 晨曦航空}
       - {code: 300456.SZ, name: 赛微电子}
-      - {code: 300114.SZ, name: 中航电测}
+      - {code: 600765.SH, name: 中航重机}
       - {code: 300474.SZ, name: 景嘉微}
       - {code: 688297.SH, name: 中无人机}
       - {code: 688122.SH, name: 西部超导}
@@ -822,18 +859,18 @@ themes:
       # gold
       - {code: 600547.SH, name: 山东黄金, subtrack: gold}
       - {code: 600489.SH, name: 中金黄金, subtrack: gold}
-      - {code: 000975.SZ, name: 银泰黄金, subtrack: gold}
+      - {code: 000975.SZ, name: 山金国际, subtrack: gold}
       - {code: 600988.SH, name: 赤峰黄金, subtrack: gold}
       - {code: 002155.SZ, name: 湖南黄金, subtrack: gold}
       - {code: 601069.SH, name: 西部黄金, subtrack: gold}
       - {code: 002237.SZ, name: 恒邦股份, subtrack: gold}
-      - {code: 601028.SH, name: 玉龙股份, subtrack: gold}
+      - {code: 000603.SZ, name: 盛达资源, subtrack: gold}
 
       # rare_earth
       - {code: 600111.SH, name: 北方稀土, subtrack: rare_earth}
       - {code: 000831.SZ, name: 中国稀土, subtrack: rare_earth}
       - {code: 600549.SH, name: 厦门钨业, subtrack: rare_earth}
-      - {code: 600259.SH, name: 广晟有色, subtrack: rare_earth}
+      - {code: 600259.SH, name: 中稀有色, subtrack: rare_earth}
       - {code: 600392.SH, name: 盛和资源, subtrack: rare_earth}
       - {code: 000970.SZ, name: 中科三环, subtrack: rare_earth}
       - {code: 300748.SZ, name: 金力永磁, subtrack: rare_earth}
@@ -902,7 +939,7 @@ themes:
       - {code: 600141.SH, name: 兴发集团, subtrack: fertilizer_pesticide}
       - {code: 000422.SZ, name: 湖北宜化, subtrack: fertilizer_pesticide}
       - {code: 002588.SZ, name: 史丹利, subtrack: fertilizer_pesticide}
-      - {code: 002538.SZ, name: 司尔特, subtrack: fertilizer_pesticide}
+      - {code: 600470.SH, name: 六国化工, subtrack: fertilizer_pesticide}
       - {code: 000902.SZ, name: 新洋丰, subtrack: fertilizer_pesticide}
       - {code: 600486.SH, name: 扬农化工, subtrack: fertilizer_pesticide}
       - {code: 002258.SZ, name: 利尔化学, subtrack: fertilizer_pesticide}
@@ -924,8 +961,8 @@ themes:
     stocks:
       # broker
       - {code: 600030.SH, name: 中信证券, subtrack: broker}
-      - {code: 601211.SH, name: 国泰君安, subtrack: broker}
-      - {code: 600837.SH, name: 海通证券, subtrack: broker}
+      - {code: 601211.SH, name: 国泰海通, subtrack: broker}
+      - {code: 601995.SH, name: 中金公司, subtrack: broker}
       - {code: 600999.SH, name: 招商证券, subtrack: broker}
       - {code: 601688.SH, name: 华泰证券, subtrack: broker}
       - {code: 601066.SH, name: 中信建投, subtrack: broker}
@@ -955,14 +992,13 @@ themes:
       - {code: 601601.SH, name: 中国太保, subtrack: insurance}
       - {code: 601336.SH, name: 新华保险, subtrack: insurance}
       - {code: 601319.SH, name: 中国人保, subtrack: insurance}
-      - {code: 000627.SZ, name: 天茂集团, subtrack: insurance}
 
       # diversified
       - {code: 600061.SH, name: 国投资本, subtrack: diversified}
       - {code: 000987.SZ, name: 越秀资本, subtrack: diversified}
       - {code: 600390.SH, name: 五矿资本, subtrack: diversified}
       - {code: 002608.SZ, name: 江苏国信, subtrack: diversified}
-      - {code: 000563.SZ, name: 陕国投A, subtrack: diversified}
+      - {code: 000563.SZ, name: 陕国投Ａ, subtrack: diversified}
       - {code: 600927.SH, name: 永安期货, subtrack: diversified}
       - {code: 603093.SH, name: 南华期货, subtrack: diversified}
       - {code: 002961.SZ, name: 瑞达期货, subtrack: diversified}
@@ -998,12 +1034,12 @@ themes:
       - {code: 603027.SH, name: 千禾味业, subtrack: condiment}
       - {code: 600298.SH, name: 安琪酵母, subtrack: condiment}
       - {code: 600305.SH, name: 恒顺醋业, subtrack: condiment}
-      - {code: 002650.SZ, name: 加加食品, subtrack: condiment}
+      - {code: 603170.SH, name: 宝立食品, subtrack: condiment}
       - {code: 002507.SZ, name: 涪陵榨菜, subtrack: condiment}
       - {code: 603317.SH, name: 天味食品, subtrack: condiment}
       - {code: 300908.SZ, name: 仲景食品, subtrack: condiment}
       - {code: 603755.SH, name: 日辰股份, subtrack: condiment}
-      - {code: 600186.SH, name: 莲花健康, subtrack: condiment}
+      - {code: 600186.SH, name: 莲花控股, subtrack: condiment}
 
       # leisure
       - {code: 603345.SH, name: 安井食品, subtrack: leisure}
@@ -1019,7 +1055,7 @@ themes:
       - {code: 002991.SZ, name: 甘源食品, subtrack: leisure}
       - {code: 003000.SZ, name: 劲仔食品, subtrack: leisure}
       - {code: 002557.SZ, name: 洽洽食品, subtrack: leisure}
-      - {code: 603517.SH, name: 绝味食品, subtrack: leisure}
+      - {code: 605338.SH, name: 巴比食品, subtrack: leisure}
       - {code: 603057.SH, name: 紫燕食品, subtrack: leisure}
       - {code: 002695.SZ, name: 煌上煌, subtrack: leisure}
 
@@ -1031,7 +1067,7 @@ themes:
       - {code: 002299.SZ, name: 圣农发展, subtrack: meat_poultry}
       - {code: 002311.SZ, name: 海大集团, subtrack: meat_poultry}
       - {code: 002385.SZ, name: 大北农, subtrack: meat_poultry}
-      - {code: 002726.SZ, name: 龙大美食, subtrack: meat_poultry}
+      - {code: 001201.SZ, name: 东瑞股份, subtrack: meat_poultry}
       - {code: 002458.SZ, name: 益生股份, subtrack: meat_poultry}
       - {code: 002746.SZ, name: 仙坛股份, subtrack: meat_poultry}
       - {code: 002234.SZ, name: 民和股份, subtrack: meat_poultry}
@@ -1055,7 +1091,7 @@ themes:
       - {code: 600233.SH, name: 圆通速递, subtrack: express}
       - {code: 002468.SZ, name: 申通快递, subtrack: express}
       - {code: 002120.SZ, name: 韵达股份, subtrack: express}
-      - {code: 603056.SH, name: 德邦股份, subtrack: express}
+      - {code: 603713.SH, name: 密尔克卫, subtrack: express}
 
       # shipping
       - {code: 601919.SH, name: 中远海控, subtrack: shipping}
@@ -1069,13 +1105,13 @@ themes:
       - {code: 601000.SH, name: 唐山港, subtrack: shipping}
       - {code: 001872.SZ, name: 招商港口, subtrack: shipping}
       - {code: 601018.SH, name: 宁波港, subtrack: shipping}
-      - {code: 600317.SH, name: 营口港, subtrack: shipping}
+      - {code: 601326.SH, name: 秦港股份, subtrack: shipping}
       - {code: 601298.SH, name: 青岛港, subtrack: shipping}
 
       # aviation
       - {code: 601111.SH, name: 中国国航, subtrack: aviation}
       - {code: 600029.SH, name: 南方航空, subtrack: aviation}
-      - {code: 600115.SH, name: 东方航空, subtrack: aviation}
+      - {code: 600115.SH, name: 中国东航, subtrack: aviation}
       - {code: 601021.SH, name: 春秋航空, subtrack: aviation}
       - {code: 603885.SH, name: 吉祥航空, subtrack: aviation}
       - {code: 002928.SZ, name: 华夏航空, subtrack: aviation}
@@ -1085,7 +1121,7 @@ themes:
       - {code: 001965.SZ, name: 招商公路, subtrack: highway_rail}
       - {code: 600377.SH, name: 宁沪高速, subtrack: highway_rail}
       - {code: 600350.SH, name: 山东高速, subtrack: highway_rail}
-      - {code: 000429.SZ, name: 粤高速A, subtrack: highway_rail}
+      - {code: 000429.SZ, name: 粤高速Ａ, subtrack: highway_rail}
       - {code: 001213.SZ, name: 中铁特货, subtrack: highway_rail}
       - {code: 601816.SH, name: 京沪高铁, subtrack: highway_rail}
       - {code: 600033.SH, name: 福建高速, subtrack: highway_rail}
