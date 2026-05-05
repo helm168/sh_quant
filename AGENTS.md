@@ -24,9 +24,12 @@ sh_quant/
 ├── notebooks/        # 每个研究问题一个 .ipynb（探索 / 实验 / 写结论）
 ├── utils/            # 复用工具库（data / backtest / metrics / plot / signals）
 ├── scripts/          # 一次性脚本（数据 bulk pull、probe、迁移）；不被 utils/notebooks import
+├── config/           # 配置：themes.yaml 主题成分股库 等
 ├── data_cache/       # 本地 parquet 缓存，不进 git；按维度分子目录
 │   ├── sw_l1/        #   申万一级行业 31 份日线
 │   ├── sw_l2/        #   申万二级行业 124 份日线
+│   ├── etf/          #   场内 ETF 日线
+│   ├── stocks/       #   主题成分股个股日线（按 ts_code 去重）
 │   └── ...
 ├── outputs/          # 图、临时 csv、报告产物
 ├── reports/          # 月报、复盘文档

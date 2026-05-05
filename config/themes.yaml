@@ -1,0 +1,167 @@
+# sh_quant 主题成分股库
+#
+# 编辑约定：
+#   - 每个主题 30–100 只
+#   - 同一只股票可在多个主题里（puller 会去重）
+#   - stocks 用紧凑 inline 格式：- {code: 600519.SH, name: 贵州茅台}
+#   - 想加注释解释为何选这只，就用 yaml 注释（# ...）写在它上面
+#   - ts_code 必须带交易所后缀（.SH / .SZ / .BJ）
+#
+# 数据拉取：
+#   python scripts/pull_theme_stocks.py
+#
+# 注：种子股票仅是常见代表，不是建议买入清单。补到 30+ 之后再开始研究。
+
+themes:
+
+  # ---------- 科技 / AI ----------
+
+  ai_compute:
+    name: AI 算力 / 芯片
+    desc: 国产 GPU / NPU、HBM、CoWoS 封装、PCB 高多层板、光通信。受益于 AI 训练/推理需求爆发 + 国产替代。
+    stocks:
+      - {code: 688256.SH, name: 寒武纪}
+      - {code: 688041.SH, name: 海光信息}
+      - {code: 688008.SH, name: 澜起科技}
+      - {code: 603501.SH, name: 韦尔股份}
+      - {code: 300308.SZ, name: 中际旭创}        # 光通信 / 800G
+      - {code: 601138.SH, name: 工业富联}        # AI 服务器 ODM
+      # TODO 补充：GPU 链 / HBM / 封测 / PCB / 液冷 / 光模块 / 服务器 ODM 子方向
+
+  semi_equipment:
+    name: 半导体设备 / 材料
+    desc: 国产替代核心赛道。刻蚀、薄膜沉积、量测、清洗设备 + 大硅片 / 光刻胶 / 电子特气等材料。
+    stocks:
+      - {code: 688012.SH, name: 中微公司}
+      - {code: 002371.SZ, name: 北方华创}
+      - {code: 688072.SH, name: 拓荆科技}
+      - {code: 688126.SH, name: 沪硅产业}
+      - {code: 300604.SZ, name: 长川科技}
+      # TODO 补充：刻蚀 / 薄膜 / 离子注入 / 量测 / 清洗 / 硅片 / 光刻胶 / 特气
+
+  consumer_electronics:
+    name: 消费电子
+    desc: 苹果链 / 安卓链 / VR & AR 头显 / 折叠屏。代工 + 模组 + 玻璃 + 声学。
+    stocks:
+      - {code: 002475.SZ, name: 立讯精密}
+      - {code: 002241.SZ, name: 歌尔股份}
+      - {code: 300433.SZ, name: 蓝思科技}
+      - {code: 002384.SZ, name: 东山精密}
+      - {code: 002351.SZ, name: 漫步者}
+      # TODO 补充：果链 / VR/AR / 折叠屏 / PCB / 声学 / 摄像头 / 散热
+
+  # ---------- 新能源 ----------
+
+  ev_battery:
+    name: 新能源车 / 锂电
+    desc: 整车 + 动力电池 + 上游锂矿 / 正极 / 负极 / 隔膜 / 电解液。
+    stocks:
+      - {code: 300750.SZ, name: 宁德时代}
+      - {code: 002594.SZ, name: 比亚迪}
+      - {code: 300014.SZ, name: 亿纬锂能}
+      - {code: 002460.SZ, name: 赣锋锂业}
+      - {code: 002466.SZ, name: 天齐锂业}
+      - {code: 300073.SZ, name: 当升科技}
+      # TODO 补充：整车 / 电池 / 锂矿 / 正极 / 负极 / 隔膜 / 电解液 / 充电桩
+
+  solar:
+    name: 光伏
+    desc: 硅料 → 硅片 → 电池片 → 组件 → 逆变器 + 跟踪支架。整体周期股属性强。
+    stocks:
+      - {code: 601012.SH, name: 隆基绿能}
+      - {code: 600438.SH, name: 通威股份}
+      - {code: 002129.SZ, name: TCL中环}
+      - {code: 300274.SZ, name: 阳光电源}
+      - {code: 688303.SH, name: 大全能源}
+      # TODO 补充：硅料 / 硅片 / 电池片 / 组件 / 逆变器 / 支架 / 玻璃
+
+  energy_storage:
+    name: 储能
+    desc: 大储 + 工商业储能 + 户储。跟光伏 / 电网 / 海外市场强相关。
+    stocks:
+      - {code: 300274.SZ, name: 阳光电源}      # 也在光伏
+      - {code: 300750.SZ, name: 宁德时代}      # 也在锂电
+      - {code: 600884.SH, name: 杉杉股份}
+      - {code: 300068.SZ, name: 南都电源}
+      # TODO 补充：电池 / PCS / EMS / 户储 / 海外品牌
+
+  # ---------- 医药 ----------
+
+  innovative_drug:
+    name: 创新药
+    desc: 国内创新药龙头 + 出海 license-out 标的。
+    stocks:
+      - {code: 600276.SH, name: 恒瑞医药}
+      - {code: 688235.SH, name: 百济神州}
+      - {code: 600196.SH, name: 复星医药}
+      - {code: 300122.SZ, name: 智飞生物}
+      # TODO 补充：肿瘤 / 自免 / GLP-1 / 减肥 / ADC / 出海 license-out
+
+  cxo_devices:
+    name: CXO / 医疗器械
+    desc: CRO / CDMO 服务商 + 医疗器械龙头。
+    stocks:
+      - {code: 603259.SH, name: 药明康德}
+      - {code: 002821.SZ, name: 凯莱英}
+      - {code: 300347.SZ, name: 泰格医药}
+      - {code: 300760.SZ, name: 迈瑞医疗}
+      # TODO 补充：CRO / CDMO / 医疗器械 / IVD / 高值耗材
+
+  # ---------- 消费 ----------
+
+  baijiu:
+    name: 白酒
+    desc: 高端 / 次高端 / 区域龙头。一个独立到值得拎出来的板块。
+    stocks:
+      - {code: 600519.SH, name: 贵州茅台}
+      - {code: 000858.SZ, name: 五粮液}
+      - {code: 000568.SZ, name: 泸州老窖}
+      - {code: 600809.SH, name: 山西汾酒}
+      - {code: 000596.SZ, name: 古井贡酒}
+      - {code: 002304.SZ, name: 洋河股份}
+      # TODO 补充：高端 / 次高端 / 区域龙头 / 港股酒类
+
+  going_global:
+    name: 出海 / 全球化
+    desc: 海外营收占比高、有真实国际竞争力的标的。家电、机械、消费品、跨境电商。
+    stocks:
+      - {code: 000333.SZ, name: 美的集团}
+      - {code: 600690.SH, name: 海尔智家}
+      - {code: 600660.SH, name: 福耀玻璃}
+      - {code: 300866.SZ, name: 安克创新}
+      - {code: 600176.SH, name: 中国巨石}
+      # TODO 补充：家电 / 工程机械 / 跨境电商 / 汽配 / 消费品 / OEM
+
+  # ---------- 周期 / 金融 / 国防 ----------
+
+  bank:
+    name: 银行
+    desc: 国有大行 + 股份行 + 优质城商行。低估值、高分红、利率敏感。
+    stocks:
+      - {code: 600036.SH, name: 招商银行}
+      - {code: 601398.SH, name: 工商银行}
+      - {code: 601166.SH, name: 兴业银行}
+      - {code: 000001.SZ, name: 平安银行}
+      - {code: 002142.SZ, name: 宁波银行}
+      - {code: 601288.SH, name: 农业银行}
+      # TODO 补充：六大行 / 股份行 / 优质城商行 / 农商行
+
+  military:
+    name: 军工 / 国防
+    desc: 军机产业链 + 军工电子 + 航发。订单驱动、五年规划周期。
+    stocks:
+      - {code: 600760.SH, name: 中航沈飞}
+      - {code: 002179.SZ, name: 中航光电}
+      - {code: 600893.SH, name: 航发动力}
+      - {code: 002025.SZ, name: 航天电器}
+      # TODO 补充：主机厂 / 军工电子 / 航发 / 卫星 / 信息化 / 上游材料
+
+  robotics:
+    name: 机器人 / 智能制造
+    desc: 工业自动化 + 协作机器人 + 人形机器人。受益于制造业升级 + 老龄化。
+    stocks:
+      - {code: 300124.SZ, name: 汇川技术}
+      - {code: 300607.SZ, name: 拓斯达}
+      - {code: 002747.SZ, name: 埃斯顿}
+      - {code: 688017.SH, name: 绿的谐波}
+      # TODO 补充：本体 / 减速器 / 伺服 / 控制器 / 视觉 / 集成商

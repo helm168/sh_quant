@@ -20,6 +20,7 @@ ipywidgets>=8.1
 
 # 工程辅助
 python-dotenv>=1.0     # 读 .env 里的 tushare token
+PyYAML>=6.0            # 读 config/themes.yaml
 tqdm>=4.66
 
 # 后续阶段会用到（先装好，避免来回切环境）

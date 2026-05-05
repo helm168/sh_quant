@@ -9,7 +9,8 @@ sh_quant/
 ├── notebooks/        # 每个研究问题一个 notebook
 ├── utils/            # 复用工具（data / backtest / metrics / plot / signals）
 ├── scripts/          # 一次性脚本（数据 bulk pull 等），见 AGENTS.md
-├── data_cache/       # 本地 parquet 缓存，按维度分子目录（sw_l1/ sw_l2/ ...），不进 git
+├── config/           # 配置（themes.yaml 主题成分股库 等）
+├── data_cache/       # 本地 parquet 缓存，按维度分子目录（sw_l1/ sw_l2/ etf/ stocks/ ...），不进 git
 ├── outputs/          # 图、临时 csv、报告产物
 ├── reports/          # 月报、复盘文档
 ├── docs/             # 投资方法论、风控规则等长文档
