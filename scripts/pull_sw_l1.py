@@ -43,26 +43,27 @@ def load_token() -> str:
     return token
 
 
+PERMISSION_KEYWORDS = ("40203", "权限", "积分", "permission")
+
+
+class PermissionError_(RuntimeError):
+    """tushare 权限/积分相关错误，触发后立即终止，不继续后续行业。"""
+
+
 def fetch_one(pro, ts_code: str, start: str, end: str) -> pd.DataFrame:
-    """优先用 sw_daily（列更全），权限不够时 fallback 到 index_daily。"""
-    last_err: Exception | None = None
-    for fn_name in ("sw_daily", "index_daily"):
-        try:
-            fn = getattr(pro, fn_name)
-            df = fn(ts_code=ts_code, start_date=start, end_date=end)
-            if df is not None and not df.empty:
-                df = df.sort_values("trade_date").reset_index(drop=True)
-                df["trade_date"] = pd.to_datetime(df["trade_date"], format="%Y%m%d")
-                df.attrs["source"] = fn_name
-                return df
-        except Exception as e:  # noqa: BLE001
-            last_err = e
-            # 仅在权限不足 / 接口不存在时 fallback；其他异常应直接暴露
-            if not any(s in str(e) for s in ("40203", "权限", "积分", "permission")):
-                raise
-    if last_err:
-        raise last_err
-    return pd.DataFrame()
+    """只走 sw_daily。权限/积分错误抛 PermissionError_，由调用方决定是否中止。"""
+    try:
+        df = pro.sw_daily(ts_code=ts_code, start_date=start, end_date=end)
+    except Exception as e:  # noqa: BLE001
+        if any(s in str(e) for s in PERMISSION_KEYWORDS):
+            raise PermissionError_(str(e)) from e
+        raise
+
+    if df is None or df.empty:
+        return pd.DataFrame()
+    df = df.sort_values("trade_date").reset_index(drop=True)
+    df["trade_date"] = pd.to_datetime(df["trade_date"], format="%Y%m%d")
+    return df
 
 
 def main() -> None:
@@ -114,8 +115,13 @@ def main() -> None:
             else:
                 df["industry_name"] = name
                 df.to_parquet(out, index=False)
-                src_used = df.attrs.get("source", "?")
-                print(f"  [{i:>2}/{n}] ok    {code} {name}  ({len(df)} rows, via {src_used})")
+                print(f"  [{i:>2}/{n}] ok    {code} {name}  ({len(df)} rows, via sw_daily)")
+        except PermissionError_ as e:
+            sys.exit(
+                f"\n[{i}/{n}] 权限/积分不足: {code} {name}"
+                f"\n  -> {e}"
+                f"\n后续行业大概率同样失败。先解决权限问题再重跑。"
+            )
         except Exception as e:  # noqa: BLE001
             print(f"  [{i:>2}/{n}] FAIL  {code} {name}  -> {e}")
             failed.append((code, name, str(e)))
