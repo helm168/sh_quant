@@ -95,6 +95,22 @@ spread     = chip_idx / server_idx
 - 行情数据本地 parquet 缓存（`data_cache/`），命中读本地、未命中拉接口落盘。详细行为见 `utils/data.py`。
 - 缓存文件不进 git（`.gitignore` 已配）；数据是大文件且可重建。
 
+### 复权约定（个股）
+
+**只缓存 raw OHLCV + adj_factor，绝不在拉取时复权**。复权由读取层 `utils/data.py:load_daily(ts_code, start, end, adj='qfq'|'hfq'|None)` 按需计算。
+
+理由：
+
+- **qfq 是动态序列**——以"最近一日"为基准，每天数据库里历史值都会变。缓存住 qfq 会导致回测 reproducibility 失效（同一份代码不同时间跑，结果不同）。
+- **存 raw + adj_factor 后，所有复权方式都能 ~5 行内推导**：
+  ```python
+  qfq_close = close * adj_factor / adj_factor.iloc[-1]   # 前复权
+  hfq_close = close * adj_factor / adj_factor.iloc[0]    # 后复权
+  raw       = close                                       # 不复权（看真实成交价）
+  ```
+
+`scripts/pull_theme_stocks.py` 拉 `pro.daily()` + `pro.adj_factor()` merge 后存盘，列：`trade_date / ts_code / open / high / low / close / pre_close / change / pct_chg / vol / amount / adj_factor`。**指数 / ETF 数据不受此约定影响**（`sw_daily` / `fund_daily` 接口本身不需要复权）。
+
 ## 环境
 
 - Python ≥ 3.10，项目级 venv (`.venv/`)。
