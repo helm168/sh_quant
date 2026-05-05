@@ -790,3 +790,303 @@ themes:
       - {code: 688122.SH, name: 西部超导}
       - {code: 688281.SH, name: 华秦科技}
       - {code: 688239.SH, name: 航宇科技}
+
+  # ---------- 资源 / 化工（周期上游）----------
+
+  nonferrous_metals:
+    name: 有色金属 / 资源品
+    desc: |
+      覆盖 copper_aluminum / gold / rare_earth / lithium_cobalt。子方向各自跟着不同的
+      宏观/产业逻辑：铜铝跟全球工业景气、黄金跟实际利率/避险、稀土跟出口管制和军工/
+      新能源需求、锂钴跟电池产业链。混在一起做横截面会被宏观因子打架。
+    subtracks:
+      copper_aluminum: 铜 / 铝 / 工业金属
+      gold:            黄金 / 贵金属
+      rare_earth:      稀土 / 稀土永磁
+      lithium_cobalt:  锂矿 / 钴镍 / 盐湖
+    stocks:
+      # copper_aluminum
+      - {code: 601899.SH, name: 紫金矿业, subtrack: copper_aluminum}
+      - {code: 600362.SH, name: 江西铜业, subtrack: copper_aluminum}
+      - {code: 000878.SZ, name: 云南铜业, subtrack: copper_aluminum}
+      - {code: 000630.SZ, name: 铜陵有色, subtrack: copper_aluminum}
+      - {code: 601168.SH, name: 西部矿业, subtrack: copper_aluminum}
+      - {code: 601600.SH, name: 中国铝业, subtrack: copper_aluminum}
+      - {code: 000933.SZ, name: 神火股份, subtrack: copper_aluminum}
+      - {code: 000807.SZ, name: 云铝股份, subtrack: copper_aluminum}
+      - {code: 002532.SZ, name: 天山铝业, subtrack: copper_aluminum}
+      - {code: 000612.SZ, name: 焦作万方, subtrack: copper_aluminum}
+      - {code: 600219.SH, name: 南山铝业, subtrack: copper_aluminum}
+      - {code: 002203.SZ, name: 海亮股份, subtrack: copper_aluminum}
+
+      # gold
+      - {code: 600547.SH, name: 山东黄金, subtrack: gold}
+      - {code: 600489.SH, name: 中金黄金, subtrack: gold}
+      - {code: 000975.SZ, name: 银泰黄金, subtrack: gold}
+      - {code: 600988.SH, name: 赤峰黄金, subtrack: gold}
+      - {code: 002155.SZ, name: 湖南黄金, subtrack: gold}
+      - {code: 601069.SH, name: 西部黄金, subtrack: gold}
+      - {code: 002237.SZ, name: 恒邦股份, subtrack: gold}
+      - {code: 601028.SH, name: 玉龙股份, subtrack: gold}
+
+      # rare_earth
+      - {code: 600111.SH, name: 北方稀土, subtrack: rare_earth}
+      - {code: 000831.SZ, name: 中国稀土, subtrack: rare_earth}
+      - {code: 600549.SH, name: 厦门钨业, subtrack: rare_earth}
+      - {code: 600259.SH, name: 广晟有色, subtrack: rare_earth}
+      - {code: 600392.SH, name: 盛和资源, subtrack: rare_earth}
+      - {code: 000970.SZ, name: 中科三环, subtrack: rare_earth}
+      - {code: 300748.SZ, name: 金力永磁, subtrack: rare_earth}
+      - {code: 300224.SZ, name: 正海磁材, subtrack: rare_earth}
+      - {code: 603663.SH, name: 三祥新材, subtrack: rare_earth}
+
+      # lithium_cobalt
+      - {code: 002466.SZ, name: 天齐锂业, subtrack: lithium_cobalt}
+      - {code: 002460.SZ, name: 赣锋锂业, subtrack: lithium_cobalt}
+      - {code: 002756.SZ, name: 永兴材料, subtrack: lithium_cobalt}
+      - {code: 000762.SZ, name: 西藏矿业, subtrack: lithium_cobalt}
+      - {code: 002738.SZ, name: 中矿资源, subtrack: lithium_cobalt}
+      - {code: 002176.SZ, name: 江特电机, subtrack: lithium_cobalt}
+      - {code: 002192.SZ, name: 融捷股份, subtrack: lithium_cobalt}
+      - {code: 603799.SH, name: 华友钴业, subtrack: lithium_cobalt}
+      - {code: 300618.SZ, name: 寒锐钴业, subtrack: lithium_cobalt}
+      - {code: 603993.SH, name: 洛阳钼业, subtrack: lithium_cobalt}
+      - {code: 000792.SZ, name: 盐湖股份, subtrack: lithium_cobalt}
+
+  chemicals:
+    name: 化工
+    desc: |
+      覆盖 basic / fine / new_materials / fertilizer_pesticide。基础化工跟原油 + 大宗商品
+      周期，精细化工/新材料跟下游应用景气，化肥农药跟农业 + 粮价。建议按 subtrack
+      分别打分；行业 PE/PB 分位数差距大，跨 subtrack 估值不可比。
+    subtracks:
+      basic:                基础化工 / 大宗 / 烯烃 / 化纤 / 聚氨酯
+      fine:                 精细化工 / 添加剂 / 制冷剂
+      new_materials:        化工新材料 / 膜材料 / 生物基
+      fertilizer_pesticide: 化肥 / 农药 / 草甘膦
+    stocks:
+      # basic
+      - {code: 600309.SH, name: 万华化学, subtrack: basic}
+      - {code: 002493.SZ, name: 荣盛石化, subtrack: basic}
+      - {code: 600346.SH, name: 恒力石化, subtrack: basic}
+      - {code: 002092.SZ, name: 中泰化学, subtrack: basic}
+      - {code: 000830.SZ, name: 鲁西化工, subtrack: basic}
+      - {code: 600426.SH, name: 华鲁恒升, subtrack: basic}
+      - {code: 002648.SZ, name: 卫星化学, subtrack: basic}
+      - {code: 601233.SH, name: 桐昆股份, subtrack: basic}
+      - {code: 002001.SZ, name: 新和成, subtrack: basic}
+      - {code: 600352.SH, name: 浙江龙盛, subtrack: basic}
+      - {code: 600409.SH, name: 三友化工, subtrack: basic}
+      - {code: 600328.SH, name: 中盐化工, subtrack: basic}
+
+      # fine
+      - {code: 600160.SH, name: 巨化股份, subtrack: fine}
+      - {code: 603379.SH, name: 三美股份, subtrack: fine}
+      - {code: 605020.SH, name: 永和股份, subtrack: fine}
+      - {code: 002643.SZ, name: 万润股份, subtrack: fine}
+      - {code: 300596.SZ, name: 利安隆, subtrack: fine}
+      - {code: 605589.SH, name: 圣泉集团, subtrack: fine}
+      - {code: 300285.SZ, name: 国瓷材料, subtrack: fine}
+
+      # new_materials
+      - {code: 688065.SH, name: 凯赛生物, subtrack: new_materials}
+      - {code: 003022.SZ, name: 联泓新科, subtrack: new_materials}
+      - {code: 000859.SZ, name: 国风新材, subtrack: new_materials}
+      - {code: 300487.SZ, name: 蓝晓科技, subtrack: new_materials}
+      - {code: 002407.SZ, name: 多氟多, subtrack: new_materials}
+      - {code: 000920.SZ, name: 沃顿科技, subtrack: new_materials}
+      - {code: 605008.SH, name: 长鸿高科, subtrack: new_materials}
+
+      # fertilizer_pesticide
+      - {code: 600096.SH, name: 云天化, subtrack: fertilizer_pesticide}
+      - {code: 600141.SH, name: 兴发集团, subtrack: fertilizer_pesticide}
+      - {code: 000422.SZ, name: 湖北宜化, subtrack: fertilizer_pesticide}
+      - {code: 002588.SZ, name: 史丹利, subtrack: fertilizer_pesticide}
+      - {code: 002538.SZ, name: 司尔特, subtrack: fertilizer_pesticide}
+      - {code: 000902.SZ, name: 新洋丰, subtrack: fertilizer_pesticide}
+      - {code: 600486.SH, name: 扬农化工, subtrack: fertilizer_pesticide}
+      - {code: 002258.SZ, name: 利尔化学, subtrack: fertilizer_pesticide}
+      - {code: 600596.SH, name: 新安股份, subtrack: fertilizer_pesticide}
+      - {code: 002391.SZ, name: 长青股份, subtrack: fertilizer_pesticide}
+
+  # ---------- 金融（补券商 / 保险）----------
+
+  brokers_insurance:
+    name: 券商 / 保险
+    desc: |
+      覆盖 broker / insurance / diversified。券商对牛熊敏感，保险跟长端利率 + 准备金
+      释放，多元金融（信托 / 期货）跟资本市场活跃度。是金融 beta 的重要补充——
+      bank 主题更偏 PB-ROE 价值风格，本主题偏估值弹性 + 市场 beta。
+    subtracks:
+      broker:      券商
+      insurance:   保险
+      diversified: 多元金融（信托 / 期货 / 控股）
+    stocks:
+      # broker
+      - {code: 600030.SH, name: 中信证券, subtrack: broker}
+      - {code: 601211.SH, name: 国泰君安, subtrack: broker}
+      - {code: 600837.SH, name: 海通证券, subtrack: broker}
+      - {code: 600999.SH, name: 招商证券, subtrack: broker}
+      - {code: 601688.SH, name: 华泰证券, subtrack: broker}
+      - {code: 601066.SH, name: 中信建投, subtrack: broker}
+      - {code: 000776.SZ, name: 广发证券, subtrack: broker}
+      - {code: 002736.SZ, name: 国信证券, subtrack: broker}
+      - {code: 300059.SZ, name: 东方财富, subtrack: broker}
+      - {code: 601377.SH, name: 兴业证券, subtrack: broker}
+      - {code: 600109.SH, name: 国金证券, subtrack: broker}
+      - {code: 601108.SH, name: 财通证券, subtrack: broker}
+      - {code: 000783.SZ, name: 长江证券, subtrack: broker}
+      - {code: 601788.SH, name: 光大证券, subtrack: broker}
+      - {code: 601901.SH, name: 方正证券, subtrack: broker}
+      - {code: 000166.SZ, name: 申万宏源, subtrack: broker}
+      - {code: 002673.SZ, name: 西部证券, subtrack: broker}
+      - {code: 600918.SH, name: 中泰证券, subtrack: broker}
+      - {code: 000728.SZ, name: 国元证券, subtrack: broker}
+      - {code: 600958.SH, name: 东方证券, subtrack: broker}
+      - {code: 601878.SH, name: 浙商证券, subtrack: broker}
+      - {code: 601198.SH, name: 东兴证券, subtrack: broker}
+      - {code: 601236.SH, name: 红塔证券, subtrack: broker}
+      - {code: 002797.SZ, name: 第一创业, subtrack: broker}
+      - {code: 002939.SZ, name: 长城证券, subtrack: broker}
+
+      # insurance
+      - {code: 601318.SH, name: 中国平安, subtrack: insurance}
+      - {code: 601628.SH, name: 中国人寿, subtrack: insurance}
+      - {code: 601601.SH, name: 中国太保, subtrack: insurance}
+      - {code: 601336.SH, name: 新华保险, subtrack: insurance}
+      - {code: 601319.SH, name: 中国人保, subtrack: insurance}
+      - {code: 000627.SZ, name: 天茂集团, subtrack: insurance}
+
+      # diversified
+      - {code: 600061.SH, name: 国投资本, subtrack: diversified}
+      - {code: 000987.SZ, name: 越秀资本, subtrack: diversified}
+      - {code: 600390.SH, name: 五矿资本, subtrack: diversified}
+      - {code: 002608.SZ, name: 江苏国信, subtrack: diversified}
+      - {code: 000563.SZ, name: 陕国投A, subtrack: diversified}
+      - {code: 600927.SH, name: 永安期货, subtrack: diversified}
+      - {code: 603093.SH, name: 南华期货, subtrack: diversified}
+      - {code: 002961.SZ, name: 瑞达期货, subtrack: diversified}
+
+  # ---------- 消费（基础消费扩篮子）----------
+
+  food_beverage_ex_baijiu:
+    name: 食品 / 乳业 / 调味品（非酒）
+    desc: |
+      覆盖 dairy / condiment / leisure / meat_poultry。**这个主题的子方向价值最大**：
+      乳业看渠道 + 提价、调味品看 ToC 和 ToB（餐饮）拆分、休闲速冻看消费情绪、
+      肉禽看猪/鸡周期。它们驱动逻辑差异巨大，必须按 subtrack 分别打分。
+    subtracks:
+      dairy:        乳业
+      condiment:    调味品 / 复合调味品
+      leisure:      休闲食品 / 速冻 / 烘焙 / 卤味
+      meat_poultry: 肉禽 / 饲料 / 养殖（猪鸡周期）
+    stocks:
+      # dairy
+      - {code: 600887.SH, name: 伊利股份, subtrack: dairy}
+      - {code: 600597.SH, name: 光明乳业, subtrack: dairy}
+      - {code: 002946.SZ, name: 新乳业, subtrack: dairy}
+      - {code: 600429.SH, name: 三元股份, subtrack: dairy}
+      - {code: 600882.SH, name: 妙可蓝多, subtrack: dairy}
+      - {code: 300898.SZ, name: 熊猫乳品, subtrack: dairy}
+      - {code: 002732.SZ, name: 燕塘乳业, subtrack: dairy}
+      - {code: 002329.SZ, name: 皇氏集团, subtrack: dairy}
+      - {code: 605179.SH, name: 一鸣食品, subtrack: dairy}
+
+      # condiment
+      - {code: 603288.SH, name: 海天味业, subtrack: condiment}
+      - {code: 600872.SH, name: 中炬高新, subtrack: condiment}
+      - {code: 603027.SH, name: 千禾味业, subtrack: condiment}
+      - {code: 600298.SH, name: 安琪酵母, subtrack: condiment}
+      - {code: 600305.SH, name: 恒顺醋业, subtrack: condiment}
+      - {code: 002650.SZ, name: 加加食品, subtrack: condiment}
+      - {code: 002507.SZ, name: 涪陵榨菜, subtrack: condiment}
+      - {code: 603317.SH, name: 天味食品, subtrack: condiment}
+      - {code: 300908.SZ, name: 仲景食品, subtrack: condiment}
+      - {code: 603755.SH, name: 日辰股份, subtrack: condiment}
+      - {code: 600186.SH, name: 莲花健康, subtrack: condiment}
+
+      # leisure
+      - {code: 603345.SH, name: 安井食品, subtrack: leisure}
+      - {code: 002216.SZ, name: 三全食品, subtrack: leisure}
+      - {code: 603719.SH, name: 良品铺子, subtrack: leisure}
+      - {code: 603866.SH, name: 桃李面包, subtrack: leisure}
+      - {code: 603886.SH, name: 元祖股份, subtrack: leisure}
+      - {code: 300973.SZ, name: 立高食品, subtrack: leisure}
+      - {code: 002702.SZ, name: 海欣食品, subtrack: leisure}
+      - {code: 001215.SZ, name: 千味央厨, subtrack: leisure}
+      - {code: 603777.SH, name: 来伊份, subtrack: leisure}
+      - {code: 002847.SZ, name: 盐津铺子, subtrack: leisure}
+      - {code: 002991.SZ, name: 甘源食品, subtrack: leisure}
+      - {code: 003000.SZ, name: 劲仔食品, subtrack: leisure}
+      - {code: 002557.SZ, name: 洽洽食品, subtrack: leisure}
+      - {code: 603517.SH, name: 绝味食品, subtrack: leisure}
+      - {code: 603057.SH, name: 紫燕食品, subtrack: leisure}
+      - {code: 002695.SZ, name: 煌上煌, subtrack: leisure}
+
+      # meat_poultry
+      - {code: 000895.SZ, name: 双汇发展, subtrack: meat_poultry}
+      - {code: 002714.SZ, name: 牧原股份, subtrack: meat_poultry}
+      - {code: 300498.SZ, name: 温氏股份, subtrack: meat_poultry}
+      - {code: 000876.SZ, name: 新希望, subtrack: meat_poultry}
+      - {code: 002299.SZ, name: 圣农发展, subtrack: meat_poultry}
+      - {code: 002311.SZ, name: 海大集团, subtrack: meat_poultry}
+      - {code: 002385.SZ, name: 大北农, subtrack: meat_poultry}
+      - {code: 002726.SZ, name: 龙大美食, subtrack: meat_poultry}
+      - {code: 002458.SZ, name: 益生股份, subtrack: meat_poultry}
+      - {code: 002746.SZ, name: 仙坛股份, subtrack: meat_poultry}
+      - {code: 002234.SZ, name: 民和股份, subtrack: meat_poultry}
+
+  # ---------- 交通运输 / 物流 ----------
+
+  transportation:
+    name: 交通运输 / 物流
+    desc: |
+      覆盖 express / shipping / aviation / highway_rail。子方向波动模式差异巨大：
+      快递跟电商景气、航运跟全球贸易 + 运价周期、航空跟油价 + 客流、公路铁路最防御
+      （类公用事业现金流）。做防御组合时选 highway_rail，做周期反转选 shipping。
+    subtracks:
+      express:      快递
+      shipping:     航运 / 港口
+      aviation:     航空
+      highway_rail: 高速 / 铁路 / 公路
+    stocks:
+      # express
+      - {code: 002352.SZ, name: 顺丰控股, subtrack: express}
+      - {code: 600233.SH, name: 圆通速递, subtrack: express}
+      - {code: 002468.SZ, name: 申通快递, subtrack: express}
+      - {code: 002120.SZ, name: 韵达股份, subtrack: express}
+      - {code: 603056.SH, name: 德邦股份, subtrack: express}
+
+      # shipping
+      - {code: 601919.SH, name: 中远海控, subtrack: shipping}
+      - {code: 601866.SH, name: 中远海发, subtrack: shipping}
+      - {code: 601872.SH, name: 招商轮船, subtrack: shipping}
+      - {code: 600026.SH, name: 中远海能, subtrack: shipping}
+      - {code: 601975.SH, name: 招商南油, subtrack: shipping}
+      - {code: 603209.SH, name: 兴通股份, subtrack: shipping}
+      - {code: 603565.SH, name: 中谷物流, subtrack: shipping}
+      - {code: 600018.SH, name: 上港集团, subtrack: shipping}
+      - {code: 601000.SH, name: 唐山港, subtrack: shipping}
+      - {code: 001872.SZ, name: 招商港口, subtrack: shipping}
+      - {code: 601018.SH, name: 宁波港, subtrack: shipping}
+      - {code: 600317.SH, name: 营口港, subtrack: shipping}
+      - {code: 601298.SH, name: 青岛港, subtrack: shipping}
+
+      # aviation
+      - {code: 601111.SH, name: 中国国航, subtrack: aviation}
+      - {code: 600029.SH, name: 南方航空, subtrack: aviation}
+      - {code: 600115.SH, name: 东方航空, subtrack: aviation}
+      - {code: 601021.SH, name: 春秋航空, subtrack: aviation}
+      - {code: 603885.SH, name: 吉祥航空, subtrack: aviation}
+      - {code: 002928.SZ, name: 华夏航空, subtrack: aviation}
+
+      # highway_rail
+      - {code: 601006.SH, name: 大秦铁路, subtrack: highway_rail}
+      - {code: 001965.SZ, name: 招商公路, subtrack: highway_rail}
+      - {code: 600377.SH, name: 宁沪高速, subtrack: highway_rail}
+      - {code: 600350.SH, name: 山东高速, subtrack: highway_rail}
+      - {code: 000429.SZ, name: 粤高速A, subtrack: highway_rail}
+      - {code: 001213.SZ, name: 中铁特货, subtrack: highway_rail}
+      - {code: 601816.SH, name: 京沪高铁, subtrack: highway_rail}
+      - {code: 600033.SH, name: 福建高速, subtrack: highway_rail}
+      - {code: 600035.SH, name: 楚天高速, subtrack: highway_rail}
