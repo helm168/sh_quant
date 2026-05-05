@@ -1,97 +1,387 @@
 # sh_quant 主题成分股库
 #
 # 编辑约定：
-#   - 每个主题 30–100 只
+#   - 每个主题 30-100 只
 #   - 同一只股票可在多个主题里（puller 会去重）
 #   - stocks 用紧凑 inline 格式：- {code: 600519.SH, name: 贵州茅台}
-#   - 想加注释解释为何选这只，就用 yaml 注释（# ...）写在它上面
 #   - ts_code 必须带交易所后缀（.SH / .SZ / .BJ）
+#   - 想加注释解释为何选这只，就用 yaml 注释（# ...）写在它上面
+#
+# 子方向（subtrack）约定：
+#   传导周期/景气节奏不同的子链，应在 theme 顶层定义 subtracks（id → 显示名），
+#   每只股票多写一个 subtrack 字段：
+#     subtracks:
+#       chip:   AI 芯片 / CPU / SoC / IP
+#       memory: HBM / DRAM / 存储 / 内存接口
+#     stocks:
+#       - {code: 688256.SH, name: 寒武纪, subtrack: chip}
+#   研究时按 subtrack 切片做单一同质 universe；跨 subtrack 看景气扩散顺序。
+#   已分子方向的主题：ai_compute / ai_data_center_power / semi_equipment /
+#                    low_altitude_space。其他主题暂未细分（subtrack 字段可空）。
 #
 # 数据拉取：
 #   python scripts/pull_theme_stocks.py
 #
-# 注：种子股票仅是常见代表，不是建议买入清单。补到 30+ 之后再开始研究。
+# 注：种子股票仅是常见代表，不是建议买入清单。主题用于景气度/轮动研究，
+#     不等于基本面推荐；后续应结合财报、公告、指数成分和流动性继续清洗。
 
 themes:
 
   # ---------- 科技 / AI ----------
 
   ai_compute:
-    name: AI 算力 / 芯片
+    name: AI 算力链
     desc: |
-      国产算力链：GPU/AI 芯片 + HBM/存储 + 先进封装 + 服务器 PCB + 光通信 + 服务器 ODM。
-      受益于 AI 训练/推理需求 + 国产替代。
+      覆盖 chip / memory / packaging / server / network / optical / pcb / connector
+      等环节。AI 训练/推理资本开支在子方向间有传导顺序：上游 chip 领先 6-12 月，
+      memory/packaging 中游同步或滞后 3 月，optical 滞后 3-9 月，下游 server 滞后
+      6-12 月。研究时按 subtrack 分别打分 + 观察跨 subtrack 价差。
+    subtracks:
+      chip:       AI 芯片 / CPU / SoC / IP
+      memory:     HBM / DRAM / 存储 / 内存接口
+      packaging:  先进封装 / 封测 / IC 载板 / 封装材料
+      server:     AI 服务器 / 主板
+      network:    网络设备 / 高速互联
+      optical:    光通信 / 光模块
+      pcb:        高速 PCB / CCL / 高频覆铜板
+      connector:  连接器 / 线束
     stocks:
-      # ── GPU / 算力芯片 ──
-      - {code: 688256.SH, name: 寒武纪}            # NPU 国产龙头
-      - {code: 688041.SH, name: 海光信息}          # x86 CPU + DCU GPU
-      - {code: 300474.SZ, name: 景嘉微}            # 国产 GPU 老牌
-      - {code: 688047.SH, name: 龙芯中科}          # 自主指令集 CPU
-      - {code: 688262.SH, name: 国芯科技}          # 车规 / 嵌入式 AI
+      # chip
+      - {code: 688256.SH, name: 寒武纪, subtrack: chip}
+      - {code: 688041.SH, name: 海光信息, subtrack: chip}
+      - {code: 300474.SZ, name: 景嘉微, subtrack: chip}
+      - {code: 688047.SH, name: 龙芯中科, subtrack: chip}
+      - {code: 688521.SH, name: 芯原股份, subtrack: chip}
+      - {code: 300458.SZ, name: 全志科技, subtrack: chip}
+      - {code: 603893.SH, name: 瑞芯微, subtrack: chip}
+      - {code: 300613.SZ, name: 富瀚微, subtrack: chip}
+      - {code: 688608.SH, name: 恒玄科技, subtrack: chip}
+      - {code: 688049.SH, name: 炬芯科技, subtrack: chip}
+      - {code: 688262.SH, name: 国芯科技, subtrack: chip}
 
-      # ── HBM / 存储 / 内存接口 ──
-      - {code: 688008.SH, name: 澜起科技}          # DDR5 / MXC 内存接口
-      - {code: 603986.SH, name: 兆易创新}          # NOR / NAND
-      - {code: 300223.SZ, name: 北京君正}          # 车规 / 推理存储
-      - {code: 301308.SZ, name: 江波龙}            # 存储模组
-      - {code: 300475.SZ, name: 香农芯创}          # SK Hynix HBM 国内分销
-      - {code: 002409.SZ, name: 雅克科技}          # HBM 前驱体材料
+      # memory
+      - {code: 688008.SH, name: 澜起科技, subtrack: memory}
+      - {code: 603986.SH, name: 兆易创新, subtrack: memory}
+      - {code: 300223.SZ, name: 北京君正, subtrack: memory}
+      - {code: 301308.SZ, name: 江波龙, subtrack: memory}
+      - {code: 300475.SZ, name: 香农芯创, subtrack: memory}
+      - {code: 688110.SH, name: 东芯股份, subtrack: memory}
+      - {code: 688525.SH, name: 佰维存储, subtrack: memory}
+      - {code: 301348.SZ, name: 蓝箭电子, subtrack: memory}
 
-      # ── 封测 / 先进封装（CoWoS-like）──
-      - {code: 002156.SZ, name: 通富微电}          # AMD / 海光封装合作伙伴
-      - {code: 600584.SH, name: 长电科技}          # 封测龙头
-      - {code: 002185.SZ, name: 华天科技}          # 封测
-      - {code: 688362.SH, name: 甬矽电子}          # 先进封装
-      - {code: 002436.SZ, name: 兴森科技}          # IC 载板
+      # packaging
+      - {code: 002156.SZ, name: 通富微电, subtrack: packaging}
+      - {code: 600584.SH, name: 长电科技, subtrack: packaging}
+      - {code: 002185.SZ, name: 华天科技, subtrack: packaging}
+      - {code: 688362.SH, name: 甬矽电子, subtrack: packaging}
+      - {code: 688072.SH, name: 拓荆科技, subtrack: packaging}
+      - {code: 688120.SH, name: 华海清科, subtrack: packaging}
+      - {code: 002436.SZ, name: 兴森科技, subtrack: packaging}
+      - {code: 002916.SZ, name: 深南电路, subtrack: packaging}
+      - {code: 002409.SZ, name: 雅克科技, subtrack: packaging}
+      - {code: 600206.SH, name: 有研新材, subtrack: packaging}
+      - {code: 603650.SH, name: 彤程新材, subtrack: packaging}
 
-      # ── PCB / 服务器主板（高多层 / HDI / 高频高速）──
-      - {code: 002463.SZ, name: 沪电股份}          # AI 服务器 PCB
-      - {code: 002916.SZ, name: 深南电路}          # PCB 龙头
-      - {code: 300476.SZ, name: 胜宏科技}          # HDI / AI 加速卡
-      - {code: 600183.SH, name: 生益科技}          # 高频高速覆铜板 (CCL)
-      - {code: 002938.SZ, name: 鹏鼎控股}          # PCB
+      # server
+      - {code: 601138.SH, name: 工业富联, subtrack: server}
+      - {code: 000977.SZ, name: 浪潮信息, subtrack: server}
+      - {code: 603019.SH, name: 中科曙光, subtrack: server}
+      - {code: 000938.SZ, name: 紫光股份, subtrack: server}
+      - {code: 002261.SZ, name: 拓维信息, subtrack: server}
+      - {code: 000066.SZ, name: 中国长城, subtrack: server}
 
-      # ── 光通信 / 光模块（800G / 1.6T）──
-      - {code: 300308.SZ, name: 中际旭创}          # 800G 龙头
-      - {code: 300502.SZ, name: 新易盛}            # 800G / 1.6T
-      - {code: 300394.SZ, name: 天孚通信}          # 光器件 / 上游
-      - {code: 300570.SZ, name: 太辰光}            # 光无源器件
-      - {code: 002281.SZ, name: 光迅科技}          # 老牌国产光器件
+      # network
+      - {code: 300017.SZ, name: 网宿科技, subtrack: network}
+      - {code: 000063.SZ, name: 中兴通讯, subtrack: network}
+      - {code: 300913.SZ, name: 兆龙互连, subtrack: network}
+      - {code: 301202.SZ, name: 朗威股份, subtrack: network}
 
-      # ── 服务器 ODM / 液冷 ──
-      - {code: 601138.SH, name: 工业富联}          # AI 服务器 ODM 龙头
-      - {code: 000977.SZ, name: 浪潮信息}          # AI 服务器
-      - {code: 603019.SH, name: 中科曙光}          # 海光母公司
-      - {code: 000938.SZ, name: 紫光股份}          # 新华三 H3C
-      - {code: 002261.SZ, name: 拓维信息}          # 鲲鹏 / 升腾
+      # optical
+      - {code: 300308.SZ, name: 中际旭创, subtrack: optical}
+      - {code: 300502.SZ, name: 新易盛, subtrack: optical}
+      - {code: 300394.SZ, name: 天孚通信, subtrack: optical}
+      - {code: 300570.SZ, name: 太辰光, subtrack: optical}
+      - {code: 002281.SZ, name: 光迅科技, subtrack: optical}
+      - {code: 688313.SH, name: 仕佳光子, subtrack: optical}
+      - {code: 688498.SH, name: 源杰科技, subtrack: optical}
+      - {code: 300548.SZ, name: 博创科技, subtrack: optical}
+
+      # pcb
+      - {code: 002463.SZ, name: 沪电股份, subtrack: pcb}
+      - {code: 300476.SZ, name: 胜宏科技, subtrack: pcb}
+      - {code: 600183.SH, name: 生益科技, subtrack: pcb}
+      - {code: 002938.SZ, name: 鹏鼎控股, subtrack: pcb}
+      - {code: 603228.SH, name: 景旺电子, subtrack: pcb}
+      - {code: 002384.SZ, name: 东山精密, subtrack: pcb}
+
+      # connector
+      - {code: 002179.SZ, name: 中航光电, subtrack: connector}
+      - {code: 300679.SZ, name: 电连技术, subtrack: connector}
+      - {code: 300843.SZ, name: 胜蓝股份, subtrack: connector}
+
+  ai_data_center_power:
+    name: AI 数据中心 / 电源散热
+    desc: |
+      覆盖 cooling / power / distribution_backup / idc_cloud。A 股纯 AIDC 和算力租赁
+      标的质量差异大，本主题更适合做景气跟踪和风险提示，不宜只按题材强度打分。
+    subtracks:
+      cooling:             液冷 / 温控 / 散热
+      power:               数据中心电源 / UPS / PDU / HVDC / 服务器电源
+      distribution_backup: 配电 / 备电 / 储能
+      idc_cloud:           IDC / 算力租赁 / 云服务
+    stocks:
+      # cooling
+      - {code: 002837.SZ, name: 英维克, subtrack: cooling}
+      - {code: 603912.SH, name: 佳力图, subtrack: cooling}
+      - {code: 301018.SZ, name: 申菱环境, subtrack: cooling}
+      - {code: 300499.SZ, name: 高澜股份, subtrack: cooling}
+      - {code: 300990.SZ, name: 同飞股份, subtrack: cooling}
+      - {code: 002272.SZ, name: 川润股份, subtrack: cooling}
+      - {code: 300602.SZ, name: 飞荣达, subtrack: cooling}
+      - {code: 002126.SZ, name: 银轮股份, subtrack: cooling}
+      - {code: 603757.SH, name: 大元泵业, subtrack: cooling}
+      - {code: 002050.SZ, name: 三花智控, subtrack: cooling}
+
+      # power
+      - {code: 002335.SZ, name: 科华数据, subtrack: power}
+      - {code: 002518.SZ, name: 科士达, subtrack: power}
+      - {code: 300376.SZ, name: 易事特, subtrack: power}
+      - {code: 300693.SZ, name: 盛弘股份, subtrack: power}
+      - {code: 002851.SZ, name: 麦格米特, subtrack: power}
+      - {code: 300870.SZ, name: 欧陆通, subtrack: power}
+      - {code: 002227.SZ, name: 奥特迅, subtrack: power}
+      - {code: 300713.SZ, name: 英可瑞, subtrack: power}
+      - {code: 300491.SZ, name: 通合科技, subtrack: power}
+      - {code: 688676.SH, name: 金盘科技, subtrack: power}
+      - {code: 002922.SZ, name: 伊戈尔, subtrack: power}
+      - {code: 301291.SZ, name: 明阳电气, subtrack: power}
+
+      # distribution_backup
+      - {code: 002028.SZ, name: 思源电气, subtrack: distribution_backup}
+      - {code: 600089.SH, name: 特变电工, subtrack: distribution_backup}
+      - {code: 601179.SH, name: 中国西电, subtrack: distribution_backup}
+      - {code: 300001.SZ, name: 特锐德, subtrack: distribution_backup}
+      - {code: 600312.SH, name: 平高电气, subtrack: distribution_backup}
+      - {code: 601727.SH, name: 上海电气, subtrack: distribution_backup}
+      - {code: 600875.SH, name: 东方电气, subtrack: distribution_backup}
+      - {code: 600580.SH, name: 卧龙电驱, subtrack: distribution_backup}
+      - {code: 300750.SZ, name: 宁德时代, subtrack: distribution_backup}
+      - {code: 300274.SZ, name: 阳光电源, subtrack: distribution_backup}
+      - {code: 300068.SZ, name: 南都电源, subtrack: distribution_backup}
+
+      # idc_cloud
+      - {code: 600845.SH, name: 宝信软件, subtrack: idc_cloud}
+      - {code: 603881.SH, name: 数据港, subtrack: idc_cloud}
+      - {code: 300738.SZ, name: 奥飞数据, subtrack: idc_cloud}
+      - {code: 300383.SZ, name: 光环新网, subtrack: idc_cloud}
+      - {code: 300442.SZ, name: 润泽科技, subtrack: idc_cloud}
+      - {code: 300895.SZ, name: 铜牛信息, subtrack: idc_cloud}
+      - {code: 300846.SZ, name: 首都在线, subtrack: idc_cloud}
+      - {code: 688158.SH, name: 优刻得, subtrack: idc_cloud}
+      - {code: 000158.SZ, name: 常山北明, subtrack: idc_cloud}
+      - {code: 002230.SZ, name: 科大讯飞, subtrack: idc_cloud}
+      - {code: 300624.SZ, name: 万兴科技, subtrack: idc_cloud}
 
   semi_equipment:
-    name: 半导体设备 / 材料
-    desc: 国产替代核心赛道。刻蚀、薄膜沉积、量测、清洗设备 + 大硅片 / 光刻胶 / 电子特气等材料。
+    name: 半导体设备 / 材料 / 制造
+    desc: |
+      覆盖 foundry / equipment / materials / eda_design / packaging。国产替代是主线，
+      但设备、材料、制造、设计的周期和订单兑现节奏不同。
+    subtracks:
+      foundry:    晶圆代工 / 制造
+      equipment:  半导体设备（刻蚀 / 薄膜 / 清洗 / 量测 / 测试 / 离子注入）
+      materials:  半导体材料（硅片 / 特气 / 光刻胶 / CMP / 靶材 / 掩膜版）
+      eda_design: EDA / IP / 设计
+      packaging:  封测 / 先进封装
     stocks:
-      - {code: 688012.SH, name: 中微公司}
-      - {code: 002371.SZ, name: 北方华创}
-      - {code: 688072.SH, name: 拓荆科技}
-      - {code: 688126.SH, name: 沪硅产业}
-      - {code: 300604.SZ, name: 长川科技}
-      # TODO 补充：刻蚀 / 薄膜 / 离子注入 / 量测 / 清洗 / 硅片 / 光刻胶 / 特气
+      # foundry
+      - {code: 688981.SH, name: 中芯国际, subtrack: foundry}
+      - {code: 688347.SH, name: 华虹公司, subtrack: foundry}
+      - {code: 688249.SH, name: 晶合集成, subtrack: foundry}
+      - {code: 600460.SH, name: 士兰微, subtrack: foundry}
+      - {code: 002371.SZ, name: 北方华创, subtrack: foundry}    # 注：本质为设备，沿用你这里的分组
+
+      # equipment
+      - {code: 688012.SH, name: 中微公司, subtrack: equipment}
+      - {code: 688072.SH, name: 拓荆科技, subtrack: equipment}
+      - {code: 688120.SH, name: 华海清科, subtrack: equipment}
+      - {code: 688037.SH, name: 芯源微, subtrack: equipment}
+      - {code: 688082.SH, name: 盛美上海, subtrack: equipment}
+      - {code: 688361.SH, name: 中科飞测, subtrack: equipment}
+      - {code: 300567.SZ, name: 精测电子, subtrack: equipment}
+      - {code: 300604.SZ, name: 长川科技, subtrack: equipment}
+      - {code: 603690.SH, name: 至纯科技, subtrack: equipment}
+      - {code: 688200.SH, name: 华峰测控, subtrack: equipment}
+      - {code: 688027.SH, name: 国盾量子, subtrack: equipment}
+      - {code: 600641.SH, name: 万业企业, subtrack: equipment}
+      - {code: 688147.SH, name: 微导纳米, subtrack: equipment}
+
+      # materials
+      - {code: 688126.SH, name: 沪硅产业, subtrack: materials}
+      - {code: 688432.SH, name: 有研硅, subtrack: materials}
+      - {code: 603260.SH, name: 合盛硅业, subtrack: materials}
+      - {code: 002409.SZ, name: 雅克科技, subtrack: materials}
+      - {code: 688268.SH, name: 华特气体, subtrack: materials}
+      - {code: 688106.SH, name: 金宏气体, subtrack: materials}
+      - {code: 300346.SZ, name: 南大光电, subtrack: materials}
+      - {code: 300398.SZ, name: 飞凯材料, subtrack: materials}
+      - {code: 300655.SZ, name: 晶瑞电材, subtrack: materials}
+      - {code: 688019.SH, name: 安集科技, subtrack: materials}
+      - {code: 300666.SZ, name: 江丰电子, subtrack: materials}
+      - {code: 300054.SZ, name: 鼎龙股份, subtrack: materials}
+      - {code: 688550.SH, name: 瑞联新材, subtrack: materials}
+      - {code: 688138.SH, name: 清溢光电, subtrack: materials}
+      - {code: 603078.SH, name: 江化微, subtrack: materials}
+      - {code: 600206.SH, name: 有研新材, subtrack: materials}
+      - {code: 688234.SH, name: 天岳先进, subtrack: materials}
+      - {code: 605358.SH, name: 立昂微, subtrack: materials}
+
+      # eda_design
+      - {code: 688521.SH, name: 芯原股份, subtrack: eda_design}
+      - {code: 688536.SH, name: 思瑞浦, subtrack: eda_design}
+      - {code: 688052.SH, name: 纳芯微, subtrack: eda_design}
+      - {code: 688153.SH, name: 唯捷创芯, subtrack: eda_design}
+      - {code: 688385.SH, name: 复旦微电, subtrack: eda_design}
+      - {code: 300782.SZ, name: 卓胜微, subtrack: eda_design}
+      - {code: 300661.SZ, name: 圣邦股份, subtrack: eda_design}
+      - {code: 688099.SH, name: 晶晨股份, subtrack: eda_design}
+      - {code: 688595.SH, name: 芯海科技, subtrack: eda_design}
+      - {code: 688220.SH, name: 翱捷科技, subtrack: eda_design}
+
+      # packaging
+      - {code: 600584.SH, name: 长电科技, subtrack: packaging}
+      - {code: 002156.SZ, name: 通富微电, subtrack: packaging}
+      - {code: 002185.SZ, name: 华天科技, subtrack: packaging}
+      - {code: 688362.SH, name: 甬矽电子, subtrack: packaging}
+      - {code: 002436.SZ, name: 兴森科技, subtrack: packaging}
 
   consumer_electronics:
     name: 消费电子
-    desc: 苹果链 / 安卓链 / VR & AR 头显 / 折叠屏。代工 + 模组 + 玻璃 + 声学。
+    desc: 苹果链 / 安卓链 / VR & AR 头显 / 折叠屏。代工 + 模组 + 玻璃 + 声学 + 摄像头 + 散热。
     stocks:
       - {code: 002475.SZ, name: 立讯精密}
       - {code: 002241.SZ, name: 歌尔股份}
       - {code: 300433.SZ, name: 蓝思科技}
       - {code: 002384.SZ, name: 东山精密}
       - {code: 002351.SZ, name: 漫步者}
-      # TODO 补充：果链 / VR/AR / 折叠屏 / PCB / 声学 / 摄像头 / 散热
+      - {code: 002600.SZ, name: 领益智造}
+      - {code: 300115.SZ, name: 长盈精密}
+      - {code: 002456.SZ, name: 欧菲光}
+      - {code: 002273.SZ, name: 水晶光电}
+      - {code: 002036.SZ, name: 联创电子}
+      - {code: 300136.SZ, name: 信维通信}
+      - {code: 300207.SZ, name: 欣旺达}
+      - {code: 002850.SZ, name: 科达利}
+      - {code: 300866.SZ, name: 安克创新}
+      - {code: 002938.SZ, name: 鹏鼎控股}
+      - {code: 603228.SH, name: 景旺电子}
+      - {code: 688036.SH, name: 传音控股}
+      - {code: 688007.SH, name: 光峰科技}
+      - {code: 603327.SH, name: 福蓉科技}
+      - {code: 002681.SZ, name: 奋达科技}
+      - {code: 300735.SZ, name: 光弘科技}
+      - {code: 300088.SZ, name: 长信科技}
+      - {code: 002055.SZ, name: 得润电子}
+      - {code: 300083.SZ, name: 创世纪}
+      - {code: 688608.SH, name: 恒玄科技}
+      - {code: 688049.SH, name: 炬芯科技}
+      - {code: 603893.SH, name: 瑞芯微}
+      - {code: 300458.SZ, name: 全志科技}
+      - {code: 603283.SH, name: 赛腾股份}
+      - {code: 688686.SH, name: 奥普特}
 
-  # ---------- 新能源 ----------
+  robotics:
+    name: 机器人 / 智能制造
+    desc: |
+      覆盖 humanoid-robot / robot-actuator / robot-sensor / robot-control /
+      robot-components / robot-application。人形机器人题材波动大，做量化时建议
+      同时观察工业自动化订单和零部件价格，而不是只看概念强度。
+    stocks:
+      - {code: 300124.SZ, name: 汇川技术}
+      - {code: 002747.SZ, name: 埃斯顿}
+      - {code: 688017.SH, name: 绿的谐波}
+      - {code: 300607.SZ, name: 拓斯达}
+      - {code: 300024.SZ, name: 机器人}
+      - {code: 002472.SZ, name: 双环传动}
+      - {code: 002896.SZ, name: 中大力德}
+      - {code: 603728.SH, name: 鸣志电器}
+      - {code: 002050.SZ, name: 三花智控}
+      - {code: 002906.SZ, name: 华阳集团}
+      - {code: 002527.SZ, name: 新时达}
+      - {code: 002979.SZ, name: 雷赛智能}
+      - {code: 688160.SH, name: 步科股份}
+      - {code: 688320.SH, name: 禾川科技}
+      - {code: 300660.SZ, name: 江苏雷利}
+      - {code: 301255.SZ, name: 通力科技}
+      - {code: 301368.SZ, name: 丰立智能}
+      - {code: 603667.SH, name: 五洲新春}
+      - {code: 300718.SZ, name: 长盛轴承}
+      - {code: 000821.SZ, name: 京山轻机}
+      - {code: 002031.SZ, name: 巨轮智能}
+      - {code: 300580.SZ, name: 贝斯特}
+      - {code: 002559.SZ, name: 亚威股份}
+      - {code: 688165.SH, name: 埃夫特}
+      - {code: 688188.SH, name: 柏楚电子}
+      - {code: 688686.SH, name: 奥普特}
+      - {code: 688322.SH, name: 奥比中光}
+      - {code: 300007.SZ, name: 汉威科技}
+      - {code: 002139.SZ, name: 拓邦股份}
+      - {code: 002008.SZ, name: 大族激光}
+      - {code: 300400.SZ, name: 劲拓股份}
+      - {code: 002611.SZ, name: 东方精工}
+
+  low_altitude_space:
+    name: 低空经济 / 商业航天
+    desc: |
+      覆盖 evtol_uav / navigation / satellite_rocket。低空经济偏政策和示范运营催化，
+      商业航天偏订单、星座建设和发射频次。
+    subtracks:
+      evtol_uav:        eVTOL / 无人机 / 低空平台
+      navigation:       空管 / 北斗 / 通信导航
+      satellite_rocket: 卫星制造 / 火箭 / 航天材料与电子
+    stocks:
+      # evtol_uav
+      - {code: 688297.SH, name: 中无人机, subtrack: evtol_uav}
+      - {code: 002085.SZ, name: 万丰奥威, subtrack: evtol_uav}
+      - {code: 002097.SZ, name: 山河智能, subtrack: evtol_uav}
+      - {code: 300159.SZ, name: 新研股份, subtrack: evtol_uav}
+      - {code: 300900.SZ, name: 广联航空, subtrack: evtol_uav}
+      - {code: 300424.SZ, name: 航新科技, subtrack: evtol_uav}
+      - {code: 002829.SZ, name: 星网宇达, subtrack: evtol_uav}
+      - {code: 300091.SZ, name: 金通灵, subtrack: evtol_uav}
+      - {code: 300411.SZ, name: 金盾股份, subtrack: evtol_uav}
+
+      # navigation
+      - {code: 002151.SZ, name: 北斗星通, subtrack: navigation}
+      - {code: 300101.SZ, name: 振芯科技, subtrack: navigation}
+      - {code: 002465.SZ, name: 海格通信, subtrack: navigation}
+      - {code: 600118.SH, name: 中国卫星, subtrack: navigation}
+      - {code: 688066.SH, name: 航天宏图, subtrack: navigation}
+      - {code: 300045.SZ, name: 华力创通, subtrack: navigation}
+      - {code: 300177.SZ, name: 中海达, subtrack: navigation}
+      - {code: 300627.SZ, name: 华测导航, subtrack: navigation}
+      - {code: 688568.SH, name: 中科星图, subtrack: navigation}
+      - {code: 300036.SZ, name: 超图软件, subtrack: navigation}
+
+      # satellite_rocket
+      - {code: 600879.SH, name: 航天电子, subtrack: satellite_rocket}
+      - {code: 600343.SH, name: 航天动力, subtrack: satellite_rocket}
+      - {code: 000901.SZ, name: 航天科技, subtrack: satellite_rocket}
+      - {code: 000768.SZ, name: 中航西飞, subtrack: satellite_rocket}
+      - {code: 600760.SH, name: 中航沈飞, subtrack: satellite_rocket}
+      - {code: 300034.SZ, name: 钢研高纳, subtrack: satellite_rocket}
+      - {code: 300699.SZ, name: 光威复材, subtrack: satellite_rocket}
+      - {code: 002297.SZ, name: 博云新材, subtrack: satellite_rocket}
+      - {code: 002025.SZ, name: 航天电器, subtrack: satellite_rocket}
+      - {code: 002179.SZ, name: 中航光电, subtrack: satellite_rocket}
+      - {code: 300456.SZ, name: 赛微电子, subtrack: satellite_rocket}
+      - {code: 300581.SZ, name: 晨曦航空, subtrack: satellite_rocket}
+
+  # ---------- 新能源 / 电力 ----------
 
   ev_battery:
     name: 新能源车 / 锂电
-    desc: 整车 + 动力电池 + 上游锂矿 / 正极 / 负极 / 隔膜 / 电解液。
+    desc: 整车 + 动力电池 + 锂矿 / 正极 / 负极 / 隔膜 / 电解液 / 结构件 / 充电桩。
     stocks:
       - {code: 300750.SZ, name: 宁德时代}
       - {code: 002594.SZ, name: 比亚迪}
@@ -99,40 +389,228 @@ themes:
       - {code: 002460.SZ, name: 赣锋锂业}
       - {code: 002466.SZ, name: 天齐锂业}
       - {code: 300073.SZ, name: 当升科技}
-      # TODO 补充：整车 / 电池 / 锂矿 / 正极 / 负极 / 隔膜 / 电解液 / 充电桩
+      - {code: 002812.SZ, name: 恩捷股份}
+      - {code: 300450.SZ, name: 先导智能}
+      - {code: 300207.SZ, name: 欣旺达}
+      - {code: 002850.SZ, name: 科达利}
+      - {code: 300037.SZ, name: 新宙邦}
+      - {code: 002709.SZ, name: 天赐材料}
+      - {code: 300568.SZ, name: 星源材质}
+      - {code: 600884.SH, name: 杉杉股份}
+      - {code: 603659.SH, name: 璞泰来}
+      - {code: 688005.SH, name: 容百科技}
+      - {code: 688779.SH, name: 长远锂科}
+      - {code: 300919.SZ, name: 中伟股份}
+      - {code: 300769.SZ, name: 德方纳米}
+      - {code: 002074.SZ, name: 国轩高科}
+      - {code: 601689.SH, name: 拓普集团}
+      - {code: 600699.SH, name: 均胜电子}
+      - {code: 002920.SZ, name: 德赛西威}
+      - {code: 300001.SZ, name: 特锐德}
+      - {code: 002227.SZ, name: 奥特迅}
+      - {code: 300124.SZ, name: 汇川技术}
+      - {code: 600660.SH, name: 福耀玻璃}
+      - {code: 601633.SH, name: 长城汽车}
+      - {code: 601127.SH, name: 赛力斯}
+      - {code: 600104.SH, name: 上汽集团}
+      - {code: 601238.SH, name: 广汽集团}
+
+  advanced_battery:
+    name: 固态电池 / 新型电池材料
+    desc: |
+      覆盖 solid-state-battery / solid-electrolyte / silicon-anode /
+      battery-cathode / battery-equipment / battery-application。适合观察固态、
+      半固态、硅碳负极、干法电极等新技术从实验室到订单的扩散。
+    stocks:
+      - {code: 300750.SZ, name: 宁德时代}
+      - {code: 002594.SZ, name: 比亚迪}
+      - {code: 300014.SZ, name: 亿纬锂能}
+      - {code: 002074.SZ, name: 国轩高科}
+      - {code: 688567.SH, name: 孚能科技}
+      - {code: 688707.SH, name: 振华新材}
+      - {code: 688005.SH, name: 容百科技}
+      - {code: 300073.SZ, name: 当升科技}
+      - {code: 300769.SZ, name: 德方纳米}
+      - {code: 300919.SZ, name: 中伟股份}
+      - {code: 002709.SZ, name: 天赐材料}
+      - {code: 300037.SZ, name: 新宙邦}
+      - {code: 603659.SH, name: 璞泰来}
+      - {code: 600884.SH, name: 杉杉股份}
+      - {code: 300035.SZ, name: 中科电气}
+      - {code: 300890.SZ, name: 翔丰华}
+      - {code: 835185.BJ, name: 贝特瑞}
+      - {code: 300450.SZ, name: 先导智能}
+      - {code: 688006.SH, name: 杭可科技}
+      - {code: 688155.SH, name: 先惠技术}
+      - {code: 300457.SZ, name: 赢合科技}
+      - {code: 688499.SH, name: 利元亨}
+      - {code: 002812.SZ, name: 恩捷股份}
+      - {code: 300568.SZ, name: 星源材质}
+      - {code: 002850.SZ, name: 科达利}
+      - {code: 002460.SZ, name: 赣锋锂业}
+      - {code: 002466.SZ, name: 天齐锂业}
+      - {code: 002176.SZ, name: 江特电机}
+      - {code: 002192.SZ, name: 融捷股份}
+      - {code: 301358.SZ, name: 湖南裕能}
 
   solar:
     name: 光伏
-    desc: 硅料 → 硅片 → 电池片 → 组件 → 逆变器 + 跟踪支架。整体周期股属性强。
+    desc: 硅料 -> 硅片 -> 电池片 -> 组件 -> 逆变器 + 跟踪支架 + 玻璃。整体周期股属性强。
     stocks:
       - {code: 601012.SH, name: 隆基绿能}
       - {code: 600438.SH, name: 通威股份}
       - {code: 002129.SZ, name: TCL中环}
       - {code: 300274.SZ, name: 阳光电源}
       - {code: 688303.SH, name: 大全能源}
-      # TODO 补充：硅料 / 硅片 / 电池片 / 组件 / 逆变器 / 支架 / 玻璃
+      - {code: 688599.SH, name: 天合光能}
+      - {code: 688223.SH, name: 晶科能源}
+      - {code: 002459.SZ, name: 晶澳科技}
+      - {code: 603806.SH, name: 福斯特}
+      - {code: 601865.SH, name: 福莱特}
+      - {code: 300118.SZ, name: 东方日升}
+      - {code: 603185.SH, name: 弘元绿能}
+      - {code: 603396.SH, name: 金辰股份}
+      - {code: 603212.SH, name: 赛伍技术}
+      - {code: 688408.SH, name: 中信博}
+      - {code: 300763.SZ, name: 锦浪科技}
+      - {code: 688390.SH, name: 固德威}
+      - {code: 688472.SH, name: 阿特斯}
+      - {code: 603218.SH, name: 日月股份}
+      - {code: 300751.SZ, name: 迈为股份}
+      - {code: 300724.SZ, name: 捷佳伟创}
+      - {code: 002865.SZ, name: 钧达股份}
+      - {code: 600732.SH, name: 爱旭股份}
+      - {code: 600089.SH, name: 特变电工}
+      - {code: 601222.SH, name: 林洋能源}
+      - {code: 601615.SH, name: 明阳智能}
+      - {code: 002531.SZ, name: 天顺风能}
+      - {code: 600905.SH, name: 三峡能源}
+      - {code: 003816.SZ, name: 中国广核}
+      - {code: 002506.SZ, name: 协鑫集成}
 
   energy_storage:
     name: 储能
     desc: 大储 + 工商业储能 + 户储。跟光伏 / 电网 / 海外市场强相关。
     stocks:
-      - {code: 300274.SZ, name: 阳光电源}      # 也在光伏
-      - {code: 300750.SZ, name: 宁德时代}      # 也在锂电
+      - {code: 300274.SZ, name: 阳光电源}
+      - {code: 300750.SZ, name: 宁德时代}
       - {code: 600884.SH, name: 杉杉股份}
       - {code: 300068.SZ, name: 南都电源}
-      # TODO 补充：电池 / PCS / EMS / 户储 / 海外品牌
+      - {code: 002335.SZ, name: 科华数据}
+      - {code: 002518.SZ, name: 科士达}
+      - {code: 300693.SZ, name: 盛弘股份}
+      - {code: 300376.SZ, name: 易事特}
+      - {code: 688063.SH, name: 派能科技}
+      - {code: 688390.SH, name: 固德威}
+      - {code: 300763.SZ, name: 锦浪科技}
+      - {code: 300827.SZ, name: 上能电气}
+      - {code: 688348.SH, name: 昱能科技}
+      - {code: 002121.SZ, name: 科陆电子}
+      - {code: 002090.SZ, name: 金智科技}
+      - {code: 300510.SZ, name: 金冠股份}
+      - {code: 002028.SZ, name: 思源电气}
+      - {code: 688676.SH, name: 金盘科技}
+      - {code: 301291.SZ, name: 明阳电气}
+      - {code: 300001.SZ, name: 特锐德}
+      - {code: 600406.SH, name: 国电南瑞}
+      - {code: 600522.SH, name: 中天科技}
+      - {code: 601877.SH, name: 正泰电器}
+      - {code: 300438.SZ, name: 鹏辉能源}
+      - {code: 002074.SZ, name: 国轩高科}
+      - {code: 300014.SZ, name: 亿纬锂能}
+      - {code: 002709.SZ, name: 天赐材料}
+      - {code: 300037.SZ, name: 新宙邦}
+      - {code: 300491.SZ, name: 通合科技}
+      - {code: 002851.SZ, name: 麦格米特}
+
+  power_grid_ess:
+    name: 电网设备 / 新型电力系统
+    desc: |
+      覆盖 grid-equipment / renewable-operator / uhv / distribution-grid /
+      ess-system / ci-ess / power-electronics / grid-automation / renewable-power /
+      gas-power-backup / nuclear-power。这个主题比 AI 电力更宏观，适合观察
+      新能源消纳、数据中心接入、配网投资和储能调节的共同景气。
+    stocks:
+      - {code: 600406.SH, name: 国电南瑞}
+      - {code: 002028.SZ, name: 思源电气}
+      - {code: 600312.SH, name: 平高电气}
+      - {code: 601179.SH, name: 中国西电}
+      - {code: 600089.SH, name: 特变电工}
+      - {code: 601126.SH, name: 四方股份}
+      - {code: 601567.SH, name: 三星医疗}
+      - {code: 300360.SZ, name: 炬华科技}
+      - {code: 002339.SZ, name: 积成电子}
+      - {code: 002090.SZ, name: 金智科技}
+      - {code: 300286.SZ, name: 安科瑞}
+      - {code: 002546.SZ, name: 新联电子}
+      - {code: 300001.SZ, name: 特锐德}
+      - {code: 002452.SZ, name: 长高电新}
+      - {code: 603556.SH, name: 海兴电力}
+      - {code: 688676.SH, name: 金盘科技}
+      - {code: 002922.SZ, name: 伊戈尔}
+      - {code: 301291.SZ, name: 明阳电气}
+      - {code: 300274.SZ, name: 阳光电源}
+      - {code: 300693.SZ, name: 盛弘股份}
+      - {code: 300827.SZ, name: 上能电气}
+      - {code: 002335.SZ, name: 科华数据}
+      - {code: 002518.SZ, name: 科士达}
+      - {code: 688390.SH, name: 固德威}
+      - {code: 300763.SZ, name: 锦浪科技}
+      - {code: 600905.SH, name: 三峡能源}
+      - {code: 600027.SH, name: 华电国际}
+      - {code: 600011.SH, name: 华能国际}
+      - {code: 600900.SH, name: 长江电力}
+      - {code: 601985.SH, name: 中国核电}
+      - {code: 003816.SZ, name: 中国广核}
+      - {code: 601727.SH, name: 上海电气}
+      - {code: 600875.SH, name: 东方电气}
+      - {code: 601615.SH, name: 明阳智能}
+      - {code: 002531.SZ, name: 天顺风能}
+      - {code: 300443.SZ, name: 金雷股份}
+      - {code: 601222.SH, name: 林洋能源}
+      - {code: 600032.SH, name: 浙江新能}
+      - {code: 000591.SZ, name: 太阳能}
 
   # ---------- 医药 ----------
 
   innovative_drug:
-    name: 创新药
-    desc: 国内创新药龙头 + 出海 license-out 标的。
+    name: 创新药 / 出海
+    desc: |
+      覆盖 glp1 / adc-drug / bispecific-antibody / innovative-drug / cxo /
+      drug-outlicensing。CXO 受全球融资周期影响更强，创新药出海更看 BD、
+      临床数据和海外授权交易。
     stocks:
       - {code: 600276.SH, name: 恒瑞医药}
       - {code: 688235.SH, name: 百济神州}
       - {code: 600196.SH, name: 复星医药}
       - {code: 300122.SZ, name: 智飞生物}
-      # TODO 补充：肿瘤 / 自免 / GLP-1 / 减肥 / ADC / 出海 license-out
+      - {code: 688331.SH, name: 荣昌生物}
+      - {code: 688506.SH, name: 百利天恒}
+      - {code: 688266.SH, name: 泽璟制药}
+      - {code: 688578.SH, name: 艾力斯}
+      - {code: 688180.SH, name: 君实生物}
+      - {code: 688321.SH, name: 微芯生物}
+      - {code: 688520.SH, name: 神州细胞}
+      - {code: 688221.SH, name: 前沿生物}
+      - {code: 688336.SH, name: 三生国健}
+      - {code: 688382.SH, name: 益方生物}
+      - {code: 688197.SH, name: 首药控股}
+      - {code: 688192.SH, name: 迪哲医药}
+      - {code: 688062.SH, name: 迈威生物}
+      - {code: 300558.SZ, name: 贝达药业}
+      - {code: 300759.SZ, name: 康龙化成}
+      - {code: 603259.SH, name: 药明康德}
+      - {code: 300347.SZ, name: 泰格医药}
+      - {code: 002821.SZ, name: 凯莱英}
+      - {code: 603456.SH, name: 九洲药业}
+      - {code: 300725.SZ, name: 药石科技}
+      - {code: 603127.SH, name: 昭衍新药}
+      - {code: 688202.SH, name: 美迪西}
+      - {code: 300363.SZ, name: 博腾股份}
+      - {code: 300601.SZ, name: 康泰生物}
+      - {code: 300142.SZ, name: 沃森生物}
+      - {code: 688278.SH, name: 特宝生物}
+      - {code: 688177.SH, name: 百奥泰}
 
   cxo_devices:
     name: CXO / 医疗器械
@@ -142,13 +620,38 @@ themes:
       - {code: 002821.SZ, name: 凯莱英}
       - {code: 300347.SZ, name: 泰格医药}
       - {code: 300760.SZ, name: 迈瑞医疗}
-      # TODO 补充：CRO / CDMO / 医疗器械 / IVD / 高值耗材
+      - {code: 300759.SZ, name: 康龙化成}
+      - {code: 603456.SH, name: 九洲药业}
+      - {code: 300725.SZ, name: 药石科技}
+      - {code: 603127.SH, name: 昭衍新药}
+      - {code: 688202.SH, name: 美迪西}
+      - {code: 300363.SZ, name: 博腾股份}
+      - {code: 688617.SH, name: 惠泰医疗}
+      - {code: 688271.SH, name: 联影医疗}
+      - {code: 300529.SZ, name: 健帆生物}
+      - {code: 300003.SZ, name: 乐普医疗}
+      - {code: 688029.SH, name: 南微医学}
+      - {code: 688050.SH, name: 爱博医疗}
+      - {code: 688301.SH, name: 奕瑞科技}
+      - {code: 688139.SH, name: 海尔生物}
+      - {code: 300832.SZ, name: 新产业}
+      - {code: 300406.SZ, name: 九强生物}
+      - {code: 603658.SH, name: 安图生物}
+      - {code: 300633.SZ, name: 开立医疗}
+      - {code: 300595.SZ, name: 欧普康视}
+      - {code: 603882.SH, name: 金域医学}
+      - {code: 300244.SZ, name: 迪安诊断}
+      - {code: 300677.SZ, name: 英科医疗}
+      - {code: 603392.SH, name: 万泰生物}
+      - {code: 688016.SH, name: 心脉医疗}
+      - {code: 688580.SH, name: 伟思医疗}
+      - {code: 688366.SH, name: 昊海生科}
 
   # ---------- 消费 ----------
 
   baijiu:
-    name: 白酒
-    desc: 高端 / 次高端 / 区域龙头。一个独立到值得拎出来的板块。
+    name: 白酒 / 酒饮
+    desc: 高端 / 次高端 / 区域龙头 + 啤酒 / 黄酒 / 预调酒。白酒本身 A 股不足 30 只，因此用酒饮扩成可研究篮子。
     stocks:
       - {code: 600519.SH, name: 贵州茅台}
       - {code: 000858.SZ, name: 五粮液}
@@ -156,18 +659,65 @@ themes:
       - {code: 600809.SH, name: 山西汾酒}
       - {code: 000596.SZ, name: 古井贡酒}
       - {code: 002304.SZ, name: 洋河股份}
-      # TODO 补充：高端 / 次高端 / 区域龙头 / 港股酒类
+      - {code: 600702.SH, name: 舍得酒业}
+      - {code: 603369.SH, name: 今世缘}
+      - {code: 000799.SZ, name: 酒鬼酒}
+      - {code: 600779.SH, name: 水井坊}
+      - {code: 603589.SH, name: 口子窖}
+      - {code: 000860.SZ, name: 顺鑫农业}
+      - {code: 600559.SH, name: 老白干酒}
+      - {code: 603198.SH, name: 迎驾贡酒}
+      - {code: 000995.SZ, name: 皇台酒业}
+      - {code: 600197.SH, name: 伊力特}
+      - {code: 600199.SH, name: 金种子酒}
+      - {code: 603919.SH, name: 金徽酒}
+      - {code: 600600.SH, name: 青岛啤酒}
+      - {code: 600132.SH, name: 重庆啤酒}
+      - {code: 000729.SZ, name: 燕京啤酒}
+      - {code: 002461.SZ, name: 珠江啤酒}
+      - {code: 002568.SZ, name: 百润股份}
+      - {code: 000869.SZ, name: 张裕A}
+      - {code: 600059.SH, name: 古越龙山}
+      - {code: 601579.SH, name: 会稽山}
+      - {code: 600238.SH, name: 海南椰岛}
+      - {code: 600189.SH, name: 泉阳泉}
+      - {code: 000848.SZ, name: 承德露露}
+      - {code: 605089.SH, name: 味知香}
 
   going_global:
     name: 出海 / 全球化
-    desc: 海外营收占比高、有真实国际竞争力的标的。家电、机械、消费品、跨境电商。
+    desc: 海外营收占比高、有真实国际竞争力的标的。家电、机械、消费品、跨境电商、汽配。
     stocks:
       - {code: 000333.SZ, name: 美的集团}
       - {code: 600690.SH, name: 海尔智家}
       - {code: 600660.SH, name: 福耀玻璃}
       - {code: 300866.SZ, name: 安克创新}
       - {code: 600176.SH, name: 中国巨石}
-      # TODO 补充：家电 / 工程机械 / 跨境电商 / 汽配 / 消费品 / OEM
+      - {code: 000651.SZ, name: 格力电器}
+      - {code: 000921.SZ, name: 海信家电}
+      - {code: 000100.SZ, name: TCL科技}
+      - {code: 000063.SZ, name: 中兴通讯}
+      - {code: 300308.SZ, name: 中际旭创}
+      - {code: 300502.SZ, name: 新易盛}
+      - {code: 601100.SH, name: 恒立液压}
+      - {code: 000425.SZ, name: 徐工机械}
+      - {code: 600031.SH, name: 三一重工}
+      - {code: 000157.SZ, name: 中联重科}
+      - {code: 603338.SH, name: 浙江鼎力}
+      - {code: 601689.SH, name: 拓普集团}
+      - {code: 002050.SZ, name: 三花智控}
+      - {code: 002920.SZ, name: 德赛西威}
+      - {code: 002906.SZ, name: 华阳集团}
+      - {code: 002126.SZ, name: 银轮股份}
+      - {code: 603596.SH, name: 伯特利}
+      - {code: 603179.SH, name: 新泉股份}
+      - {code: 300415.SZ, name: 伊之密}
+      - {code: 603195.SH, name: 公牛集团}
+      - {code: 603899.SH, name: 晨光股份}
+      - {code: 002032.SZ, name: 苏泊尔}
+      - {code: 002508.SZ, name: 老板电器}
+      - {code: 603486.SH, name: 科沃斯}
+      - {code: 300979.SZ, name: 华利集团}
 
   # ---------- 周期 / 金融 / 国防 ----------
 
@@ -181,24 +731,62 @@ themes:
       - {code: 000001.SZ, name: 平安银行}
       - {code: 002142.SZ, name: 宁波银行}
       - {code: 601288.SH, name: 农业银行}
-      # TODO 补充：六大行 / 股份行 / 优质城商行 / 农商行
+      - {code: 601939.SH, name: 建设银行}
+      - {code: 601988.SH, name: 中国银行}
+      - {code: 601328.SH, name: 交通银行}
+      - {code: 601658.SH, name: 邮储银行}
+      - {code: 600000.SH, name: 浦发银行}
+      - {code: 600016.SH, name: 民生银行}
+      - {code: 601818.SH, name: 光大银行}
+      - {code: 601998.SH, name: 中信银行}
+      - {code: 600919.SH, name: 江苏银行}
+      - {code: 601009.SH, name: 南京银行}
+      - {code: 601838.SH, name: 成都银行}
+      - {code: 600926.SH, name: 杭州银行}
+      - {code: 601229.SH, name: 上海银行}
+      - {code: 002966.SZ, name: 苏州银行}
+      - {code: 601077.SH, name: 渝农商行}
+      - {code: 601860.SH, name: 紫金银行}
+      - {code: 601128.SH, name: 常熟银行}
+      - {code: 002807.SZ, name: 江阴银行}
+      - {code: 002839.SZ, name: 张家港行}
+      - {code: 002948.SZ, name: 青岛银行}
+      - {code: 600908.SH, name: 无锡银行}
+      - {code: 601528.SH, name: 瑞丰银行}
+      - {code: 601665.SH, name: 齐鲁银行}
+      - {code: 601825.SH, name: 沪农商行}
 
   military:
     name: 军工 / 国防
-    desc: 军机产业链 + 军工电子 + 航发。订单驱动、五年规划周期。
+    desc: 军机产业链 + 军工电子 + 航发 + 卫星 + 信息化。订单驱动、五年规划周期。
     stocks:
       - {code: 600760.SH, name: 中航沈飞}
       - {code: 002179.SZ, name: 中航光电}
       - {code: 600893.SH, name: 航发动力}
       - {code: 002025.SZ, name: 航天电器}
-      # TODO 补充：主机厂 / 军工电子 / 航发 / 卫星 / 信息化 / 上游材料
-
-  robotics:
-    name: 机器人 / 智能制造
-    desc: 工业自动化 + 协作机器人 + 人形机器人。受益于制造业升级 + 老龄化。
-    stocks:
-      - {code: 300124.SZ, name: 汇川技术}
-      - {code: 300607.SZ, name: 拓斯达}
-      - {code: 002747.SZ, name: 埃斯顿}
-      - {code: 688017.SH, name: 绿的谐波}
-      # TODO 补充：本体 / 减速器 / 伺服 / 控制器 / 视觉 / 集成商
+      - {code: 000768.SZ, name: 中航西飞}
+      - {code: 600038.SH, name: 中直股份}
+      - {code: 600372.SH, name: 中航机载}
+      - {code: 600316.SH, name: 洪都航空}
+      - {code: 600862.SH, name: 中航高科}
+      - {code: 300699.SZ, name: 光威复材}
+      - {code: 300034.SZ, name: 钢研高纳}
+      - {code: 002297.SZ, name: 博云新材}
+      - {code: 688375.SH, name: 国博电子}
+      - {code: 600879.SH, name: 航天电子}
+      - {code: 000901.SZ, name: 航天科技}
+      - {code: 600118.SH, name: 中国卫星}
+      - {code: 002465.SZ, name: 海格通信}
+      - {code: 002151.SZ, name: 北斗星通}
+      - {code: 300101.SZ, name: 振芯科技}
+      - {code: 300045.SZ, name: 华力创通}
+      - {code: 688568.SH, name: 中科星图}
+      - {code: 688066.SH, name: 航天宏图}
+      - {code: 300581.SZ, name: 晨曦航空}
+      - {code: 300456.SZ, name: 赛微电子}
+      - {code: 300114.SZ, name: 中航电测}
+      - {code: 300474.SZ, name: 景嘉微}
+      - {code: 688297.SH, name: 中无人机}
+      - {code: 688122.SH, name: 西部超导}
+      - {code: 688281.SH, name: 华秦科技}
+      - {code: 688239.SH, name: 航宇科技}

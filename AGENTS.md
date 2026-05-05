@@ -55,6 +55,39 @@ sh_quant/
 - token 等敏感信息从 `.env` 读，不要让用户 export 环境变量；**没 token 直接报错退出**，不要静默继续。
 - 不要造抽象，`fetch(...)` 直接走完。一次性脚本不写 SDK 封装。
 
+## 主题成分股库（`config/themes.yaml`）
+
+研究池按"主题 → 子方向（subtrack）→ 个股"三级组织。
+
+**子方向分级原则**：传导周期/景气节奏不同的子链，应在 theme 顶层定义 `subtracks`（id → 显示名），每只股票多写 `subtrack: <id>`。例：`ai_compute` 拆 chip / memory / packaging / server / network / optical / pcb / connector，因为 AI capex 在子方向间有明确的 6–12 月领先滞后关系。
+
+**研究时按 subtrack 切片**——不要把不同 subtrack 当同质 universe 跑：
+
+```python
+import yaml, pandas as pd
+themes = yaml.safe_load(open('config/themes.yaml'))['themes']
+
+def stocks_in(theme_id: str, subtrack: str | None = None) -> list[dict]:
+    pool = themes[theme_id]['stocks']
+    return [s for s in pool if subtrack is None or s.get('subtrack') == subtrack]
+
+# 同质 universe（GPU 链）做横截面动量 / 因子打分
+chips = stocks_in('ai_compute', 'chip')
+
+# 跨 subtrack spread（看资金扩散顺序）
+chip_idx   = price_index([s['code'] for s in stocks_in('ai_compute', 'chip')])
+server_idx = price_index([s['code'] for s in stocks_in('ai_compute', 'server')])
+spread     = chip_idx / server_idx
+```
+
+**单一真相**：subtrack/主题归属只在 `themes.yaml` 里定义，**不写进 `data_cache/stocks/*.parquet`**。parquet 仅存价格。这样 yaml 改了不需要重拉数据，避免 yaml 与 parquet 漂移。
+
+**何时该拆 subtrack**：
+
+- ✓ 各子方向**传导周期错位**（算力链、半导体上中下游、医药 CXO vs 创新药）
+- ✓ 各子方向**驱动因子不同**（电网设备的 UHV 招标 vs 储能的海外户储需求）
+- ✗ 各子方向**几乎同涨同跌**且基本面驱动一致（白酒高端 vs 次高端）
+
 ## 数据源
 
 - 主要数据源：**Tushare**（基础付费会员）。Token 放在项目根 `.env` 的 `TUSHARE_TOKEN`，**已 gitignore**。

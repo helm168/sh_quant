@@ -64,19 +64,21 @@ def load_themes() -> dict:
     return data["themes"]
 
 
-def collect_universe(themes: dict, only: list[str] | None) -> list[tuple[str, str, list[str]]]:
-    """返回 [(ts_code, name, [theme_id, ...]), ...]，按 ts_code 去重。"""
-    pool: dict[str, dict] = {}
+def collect_universe(themes: dict, only: list[str] | None) -> list[tuple[str, str]]:
+    """返回 [(ts_code, name), ...]，按 ts_code 去重。
+
+    主题/subtrack 元数据走 config/themes.yaml 单源真相，不写到 parquet 里——
+    研究时按需 yaml.safe_load 读出来 filter 即可，避免 parquet 与 yaml 漂移。
+    """
+    pool: dict[str, str] = {}
     for theme_id, t in themes.items():
         if only and theme_id not in only:
             continue
         for s in t.get("stocks", []) or []:
             code = s.get("code")
-            if not code:
-                continue
-            entry = pool.setdefault(code, {"name": s.get("name", ""), "themes": []})
-            entry["themes"].append(theme_id)
-    return [(c, v["name"], v["themes"]) for c, v in pool.items()]
+            if code and code not in pool:
+                pool[code] = s.get("name", "")
+    return list(pool.items())
 
 
 def fetch_one(ts_module, ts_code: str, start: str, end: str, adj: str | None) -> pd.DataFrame:
@@ -127,7 +129,7 @@ def main() -> None:
     adj = None if args.adj.lower() == "none" else args.adj.lower()
     failed: list[tuple[str, str, str]] = []
     width = len(str(n))
-    for i, (code, name, ts_list) in enumerate(universe, 1):
+    for i, (code, name) in enumerate(universe, 1):
         out = CACHE_DIR / f"{code}.parquet"
         if out.exists() and not args.force:
             print(f"  [{i:>{width}}/{n}] skip  {code} {name}  (已缓存)")
@@ -135,10 +137,9 @@ def main() -> None:
         try:
             df = fetch_one(ts, code, args.start, args.end, adj)
             if df.empty:
-                print(f"  [{i:>{width}}/{n}] empty {code} {name}  themes={ts_list}")
+                print(f"  [{i:>{width}}/{n}] empty {code} {name}")
                 failed.append((code, name, "empty"))
             else:
-                df["themes"] = "|".join(ts_list)  # 反向标记（便于以后过滤）
                 df.to_parquet(out, index=False)
                 print(f"  [{i:>{width}}/{n}] ok    {code} {name}  ({len(df)} rows, adj={adj})")
         except PermissionError_ as e:
