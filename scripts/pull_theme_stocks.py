@@ -38,10 +38,10 @@ from pathlib import Path
 import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-THEMES_YAML = PROJECT_ROOT / "config" / "themes.yaml"
-CACHE_DIR = PROJECT_ROOT / "data_cache" / "stocks"
+THEMES_YAML = PROJECT_ROOT / 'config' / 'themes.yaml'
+CACHE_DIR = PROJECT_ROOT / 'data_cache' / 'stocks'
 
-PERMISSION_KEYWORDS = ("40203", "权限", "积分", "permission")
+PERMISSION_KEYWORDS = ('40203', '权限', '积分', 'permission')
 
 
 class PermissionError_(RuntimeError):
@@ -52,11 +52,11 @@ def load_token() -> str:
     try:
         from dotenv import load_dotenv  # noqa: WPS433
     except ImportError:
-        sys.exit("python-dotenv 没装。先 `bash setup.sh`。")
-    load_dotenv(PROJECT_ROOT / ".env")
-    token = os.getenv("TUSHARE_TOKEN")
-    if not token or token == "your_tushare_token_here":
-        sys.exit("TUSHARE_TOKEN not found in .env。cp .env.example .env，再填你的真 token。")
+        sys.exit('python-dotenv 没装。先 `bash setup.sh`。')
+    load_dotenv(PROJECT_ROOT / '.env')
+    token = os.getenv('TUSHARE_TOKEN')
+    if not token or token == 'your_tushare_token_here':
+        sys.exit('TUSHARE_TOKEN not found in .env。cp .env.example .env，再填你的真 token。')
     return token
 
 
@@ -64,14 +64,14 @@ def load_themes() -> dict:
     try:
         import yaml  # noqa: WPS433
     except ImportError:
-        sys.exit("PyYAML 没装。`pip install PyYAML` 或重跑 `bash setup.sh`。")
+        sys.exit('PyYAML 没装。`pip install PyYAML` 或重跑 `bash setup.sh`。')
     if not THEMES_YAML.exists():
-        sys.exit(f"找不到 {THEMES_YAML.relative_to(PROJECT_ROOT)}。")
-    with open(THEMES_YAML, "r", encoding="utf-8") as f:
+        sys.exit(f'找不到 {THEMES_YAML.relative_to(PROJECT_ROOT)}。')
+    with open(THEMES_YAML, encoding='utf-8') as f:
         data = yaml.safe_load(f)
-    if not data or "themes" not in data:
-        sys.exit("themes.yaml 顶层缺少 `themes` 字段。")
-    return data["themes"]
+    if not data or 'themes' not in data:
+        sys.exit('themes.yaml 顶层缺少 `themes` 字段。')
+    return data['themes']
 
 
 def collect_universe(themes: dict, only: list[str] | None) -> list[tuple[str, str]]:
@@ -84,10 +84,10 @@ def collect_universe(themes: dict, only: list[str] | None) -> list[tuple[str, st
     for theme_id, t in themes.items():
         if only and theme_id not in only:
             continue
-        for s in t.get("stocks", []) or []:
-            code = s.get("code")
+        for s in t.get('stocks', []) or []:
+            code = s.get('code')
             if code and code not in pool:
-                pool[code] = s.get("name", "")
+                pool[code] = s.get('name', '')
     return list(pool.items())
 
 
@@ -114,86 +114,93 @@ def fetch_one(pro, ts_code: str, start: str, end: str) -> pd.DataFrame:
         # adj_factor 偶发失败不致命：退化为不复权（adj_factor 全 1）
         adj = None
 
-    daily = daily.sort_values("trade_date").reset_index(drop=True)
+    daily = daily.sort_values('trade_date').reset_index(drop=True)
     if adj is not None and not adj.empty:
-        adj = adj[["trade_date", "adj_factor"]].drop_duplicates("trade_date")
-        daily = daily.merge(adj, on="trade_date", how="left")
+        adj = adj[['trade_date', 'adj_factor']].drop_duplicates('trade_date')
+        daily = daily.merge(adj, on='trade_date', how='left')
         # 边界小填补：缺失的 adj_factor 按时间临近 ffill/bfill；都失败则填 1
-        daily["adj_factor"] = daily["adj_factor"].ffill().bfill().fillna(1.0)
+        daily['adj_factor'] = daily['adj_factor'].ffill().bfill().fillna(1.0)
     else:
-        daily["adj_factor"] = 1.0
+        daily['adj_factor'] = 1.0
 
-    daily["trade_date"] = pd.to_datetime(daily["trade_date"], format="%Y%m%d")
+    daily['trade_date'] = pd.to_datetime(daily['trade_date'], format='%Y%m%d')
     return daily
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--start", default="20150101")
-    ap.add_argument("--end",   default="20251231")
-    ap.add_argument("--sleep", type=float, default=0.3,
-                    help="每次接口调用之间的 sleep 秒数；本脚本 1 只股票发 2 次接口")
-    ap.add_argument("--force", action="store_true", help="忽略已有缓存，全部重拉")
-    ap.add_argument("--themes", default="",
-                    help="只拉指定主题（逗号分隔），如 ai_compute,ev_battery")
+    ap.add_argument('--start', default='20150101')
+    ap.add_argument('--end', default='20251231')
+    ap.add_argument(
+        '--sleep',
+        type=float,
+        default=0.3,
+        help='每次接口调用之间的 sleep 秒数；本脚本 1 只股票发 2 次接口',
+    )
+    ap.add_argument('--force', action='store_true', help='忽略已有缓存，全部重拉')
+    ap.add_argument(
+        '--themes', default='', help='只拉指定主题（逗号分隔），如 ai_compute,ev_battery'
+    )
     args = ap.parse_args()
 
     try:
         import tushare as ts
     except ImportError:
-        sys.exit("tushare 没装。先 `bash setup.sh`。")
+        sys.exit('tushare 没装。先 `bash setup.sh`。')
 
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     ts.set_token(load_token())
     pro = ts.pro_api()
 
-    only = [t.strip() for t in args.themes.split(",") if t.strip()] or None
+    only = [t.strip() for t in args.themes.split(',') if t.strip()] or None
     themes = load_themes()
     universe = collect_universe(themes, only)
     n = len(universe)
     if n == 0:
-        sys.exit("universe 为空，检查 themes.yaml 或 --themes 参数。")
-    print(f"{len(themes)} 个主题, {n} 只去重股票  →  {CACHE_DIR.relative_to(PROJECT_ROOT)}/")
-    print("拉 raw daily + adj_factor，复权由 utils/data.py 在读取时按需计算\n")
+        sys.exit('universe 为空，检查 themes.yaml 或 --themes 参数。')
+    print(f'{len(themes)} 个主题, {n} 只去重股票  →  {CACHE_DIR.relative_to(PROJECT_ROOT)}/')
+    print('拉 raw daily + adj_factor，复权由 utils/data.py 在读取时按需计算\n')
 
     failed: list[tuple[str, str, str]] = []
     width = len(str(n))
     for i, (code, name) in enumerate(universe, 1):
-        out = CACHE_DIR / f"{code}.parquet"
+        out = CACHE_DIR / f'{code}.parquet'
         if out.exists() and not args.force:
-            print(f"  [{i:>{width}}/{n}] skip  {code} {name}  (已缓存)")
+            print(f'  [{i:>{width}}/{n}] skip  {code} {name}  (已缓存)')
             continue
         try:
             df = fetch_one(pro, code, args.start, args.end)
             if df.empty:
-                print(f"  [{i:>{width}}/{n}] empty {code} {name}")
-                failed.append((code, name, "empty"))
+                print(f'  [{i:>{width}}/{n}] empty {code} {name}')
+                failed.append((code, name, 'empty'))
             else:
                 df.to_parquet(out, index=False)
-                af_first, af_last = df["adj_factor"].iloc[0], df["adj_factor"].iloc[-1]
-                af_marker = "" if af_first == af_last == 1.0 else f", adj={af_first:.3f}→{af_last:.3f}"
-                print(f"  [{i:>{width}}/{n}] ok    {code} {name}  ({len(df)} rows{af_marker})")
+                af_first, af_last = df['adj_factor'].iloc[0], df['adj_factor'].iloc[-1]
+                af_marker = (
+                    '' if af_first == af_last == 1.0 else f', adj={af_first:.3f}→{af_last:.3f}'
+                )
+                print(f'  [{i:>{width}}/{n}] ok    {code} {name}  ({len(df)} rows{af_marker})')
         except PermissionError_ as e:
             sys.exit(
-                f"\n[{i}/{n}] 权限/积分不足: {code} {name}"
-                f"\n  -> {e}"
-                f"\n后续股票大概率同样失败。先解决权限问题再重跑。"
+                f'\n[{i}/{n}] 权限/积分不足: {code} {name}'
+                f'\n  -> {e}'
+                f'\n后续股票大概率同样失败。先解决权限问题再重跑。'
             )
         except Exception as e:  # noqa: BLE001
-            print(f"  [{i:>{width}}/{n}] FAIL  {code} {name}  -> {e}")
+            print(f'  [{i:>{width}}/{n}] FAIL  {code} {name}  -> {e}')
             failed.append((code, name, str(e)))
         time.sleep(args.sleep)
 
     print()
     if failed:
-        print(f"{len(failed)} 个失败/空：")
+        print(f'{len(failed)} 个失败/空：')
         for code, name, err in failed[:30]:
-            print(f"  {code} {name}: {err}")
+            print(f'  {code} {name}: {err}')
         if len(failed) > 30:
-            print(f"  ... 还有 {len(failed) - 30} 个")
-        sys.exit(1 if any(e != "empty" for _, _, e in failed) else 0)
-    print("all done.")
+            print(f'  ... 还有 {len(failed) - 30} 个')
+        sys.exit(1 if any(e != 'empty' for _, _, e in failed) else 0)
+    print('all done.')
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

@@ -6,6 +6,7 @@
     - 同时计算 strategy 与 benchmark
 """
 
+
 # TODO(week2): implement backtest()
-def backtest(df, signal_col: str = "signal", price_col: str = "close") -> dict:
-    raise NotImplementedError("week2: backtest engine not implemented yet")
+def backtest(df, signal_col: str = 'signal', price_col: str = 'close') -> dict:
+    raise NotImplementedError('week2: backtest engine not implemented yet')
