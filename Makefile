@@ -14,3 +14,14 @@ freeze:
 
 clean:
 	rm -rf .venv __pycache__ */__pycache__ .ipynb_checkpoints */.ipynb_checkpoints
+
+test:
+	. .venv/bin/activate && pytest tests/ -v
+
+lint:
+	. .venv/bin/activate && ruff check .
+	. .venv/bin/activate && ruff format --check .
+
+format:
+	. .venv/bin/activate && ruff format .
+	. .venv/bin/activate && ruff check --fix .

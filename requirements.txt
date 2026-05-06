@@ -26,3 +26,8 @@ tqdm>=4.66
 # 后续阶段会用到（先装好，避免来回切环境）
 statsmodels>=0.14
 scikit-learn>=1.4
+
+pytest>=8.0
+pytest-mock>=3.12
+
+ruff>=0.15

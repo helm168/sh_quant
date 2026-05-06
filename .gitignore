@@ -30,3 +30,6 @@ outputs/*
 .env
 *.token
 config.local.*
+
+# 做测试的临时 Notebook 文件
+notebooks/test_*.ipynb
