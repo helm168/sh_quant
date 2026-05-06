@@ -1,0 +1,26 @@
+# 工具配置集中地（目前只放 ruff；以后 mypy / black 之类也放这里）
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = ["data_cache", "outputs", "notebooks/*.ipynb"]
+
+[tool.ruff.lint]
+# 精选的规则集，不开太多免得噪音：
+#   E/W: pycodestyle 错误 + 警告
+#   F:   pyflakes (未用变量 / 未定义名等)
+#   I:   isort (import 顺序)
+#   B:   flake8-bugbear (常见 bug pattern)
+#   UP:  pyupgrade (用现代 Python 写法)
+#   SIM: 简化建议
+select = ["E", "F", "W", "I", "B", "UP", "SIM"]
+ignore = [
+    "E501",   # 行长度由 formatter 处理，lint 不再报
+    "B008",   # 函数默认参数里调用 (FastAPI 之类需要，量化研究里也无害)
+]
+
+[tool.ruff.format]
+# 单引号优先（与项目惯例对齐）
+quote-style = "single"
+indent-style = "space"
+docstring-code-format = false

@@ -55,6 +55,53 @@ sh_quant/
 - token 等敏感信息从 `.env` 读，不要让用户 export 环境变量；**没 token 直接报错退出**，不要静默继续。
 - 不要造抽象，`fetch(...)` 直接走完。一次性脚本不写 SDK 封装。
 
+## 代码风格
+
+规范由工具执行，规则放 `pyproject.toml` 的 `[tool.ruff]` 段。手动检查/格式化：
+
+```bash
+make lint     # 静态扫描（ruff check）
+make format   # 自动格式化 + 修可修的 lint 问题
+```
+
+要点（细节看 pyproject.toml）：
+
+- **字符串首选单引号**（`'foo'`）。docstring 仍用 `"""..."""` 三引号。
+- **行长度上限 100**，由 formatter 处理（lint 不再报 E501）。
+- **import 顺序**：标准库 → 第三方 → 本地，三组用空行分隔。ruff 自动排。
+- **CI/pre-commit 还没接**：先靠开发自觉跑 `make lint`，等踩坑再加 hook。
+
+## 测试约定
+
+测试栈：**pytest** + **pytest-mock**（替代 unittest.mock 调用更直观）。
+
+```
+tests/
+├── conftest.py           共享 fixture（如 fake tushare pro）
+├── test_data.py          utils/data.py 的关键不变量
+├── test_metrics.py       绩效指标的数学正确性
+└── fixtures/             小份测试数据（小 parquet / 模拟 csv）
+```
+
+**该测的 vs 不该测的**：
+
+| ✓ 必须测 | ✗ 别费劲 |
+|----------|---------|
+| `load_daily()` 复权数学（首末日不变性、None 返回 raw） | notebook 探索代码 |
+| `metrics.py` 的 sharpe / max_drawdown / calmar 边界 | scripts/ 一次性 puller |
+| `signals.py` 信号边界（首日 / 最后一日 / NaN） | tushare API 本身 |
+| 缓存命中/缺失/范围超出的行为 | 画图函数 |
+
+**不要在测试里打网络**——`pro.daily()` 等接口用 `monkeypatch.setattr(data, '_get_pro', lambda: fake_pro)` 替换。
+
+跑测试：
+
+```bash
+make test            # 跑全部
+pytest tests/test_data.py -v        # 跑单个文件
+pytest tests/test_data.py::test_load_daily_qfq_last_day_unchanged   # 跑单个 case
+```
+
 ## 主题成分股库（`config/themes.yaml`）
 
 研究池按"主题 → 子方向（subtrack）→ 个股"三级组织。
