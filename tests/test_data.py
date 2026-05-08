@@ -76,10 +76,21 @@ def test_load_daily_invalid_adj_raises(tmp_stocks_dir, fake_pro):
         data_mod.load_daily('600519.SH', '20240102', '20240104', adj='bogus')
 
 
-def test_load_daily_out_of_range_raises(tmp_stocks_dir, fake_pro):
-    """请求超过缓存范围应抛 ValueError，并提示实际范围。"""
-    with pytest.raises(ValueError, match='超出'):
-        data_mod.load_daily('600519.SH', '20240101', '20251231', adj=None)
+def test_load_daily_out_of_range_triggers_refetch(tmp_stocks_dir, fake_pro):
+    """缓存范围不够时，应触发再次拉取（auto-补拉），不再 raise。"""
+    # 第 1 次：填缓存（3 行 2024 数据）
+    data_mod.load_daily('600519.SH', '20240102', '20240104', adj=None)
+    fake_pro.daily.reset_mock()
+
+    # 第 2 次：请求超过缓存的右边界 → 应触发 refetch
+    data_mod.load_daily('600519.SH', '20240102', '20251231', adj=None)
+    fake_pro.daily.assert_called()
+
+
+def test_load_daily_no_data_in_range_raises(tmp_stocks_dir, fake_pro):
+    """补拉之后请求区间内仍然没有数据 → 抛 ValueError。"""
+    with pytest.raises(ValueError, match='没有交易数据'):
+        data_mod.load_daily('600519.SH', '20300101', '20310101', adj=None)
 
 
 def test_load_daily_date_range_filter(tmp_stocks_dir, fake_pro):
