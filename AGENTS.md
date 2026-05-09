@@ -111,20 +111,19 @@ pytest tests/test_data.py::test_load_daily_qfq_last_day_unchanged   # 跑单个 
 **研究时按 subtrack 切片**——不要把不同 subtrack 当同质 universe 跑：
 
 ```python
-import yaml, pandas as pd
-themes = yaml.safe_load(open('config/themes.yaml'))['themes']
-
-def stocks_in(theme_id: str, subtrack: str | None = None) -> list[dict]:
-    pool = themes[theme_id]['stocks']
-    return [s for s in pool if subtrack is None or s.get('subtrack') == subtrack]
+from utils.themes import get_codes, get_stocks, get_subtracks
 
 # 同质 universe（GPU 链）做横截面动量 / 因子打分
-chips = stocks_in('ai_compute', 'chip')
+chips = get_stocks('ai_compute', subtrack='chip')
 
 # 跨 subtrack spread（看资金扩散顺序）
-chip_idx   = price_index([s['code'] for s in stocks_in('ai_compute', 'chip')])
-server_idx = price_index([s['code'] for s in stocks_in('ai_compute', 'server')])
+chip_idx   = price_index(get_codes('ai_compute', 'chip'))
+server_idx = price_index(get_codes('ai_compute', 'server'))
 spread     = chip_idx / server_idx
+
+# 列出所有子方向
+for sub_id, sub_name in get_subtracks('ai_compute').items():
+    print(sub_id, len(get_codes('ai_compute', sub_id)), sub_name)
 ```
 
 **单一真相**：subtrack/主题归属只在 `themes.yaml` 里定义，**不写进 `data_cache/stocks/*.parquet`**。parquet 仅存价格。这样 yaml 改了不需要重拉数据，避免 yaml 与 parquet 漂移。
