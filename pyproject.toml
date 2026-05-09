@@ -1,4 +1,19 @@
-# 工具配置集中地（目前只放 ruff；以后 mypy / black 之类也放这里）
+# 项目元数据 + 工具配置集中地
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sh-quant"
+version = "0.1.0"
+description = "Personal quant research toolkit"
+requires-python = ">=3.10"
+
+# 把项目装成 editable package：在项目根目录 `pip install -e .` 一次，
+# 之后 notebook / 脚本 / 测试在任何路径都能 `from utils.X import Y`。
+[tool.setuptools]
+packages = ["utils", "config"]
 
 [tool.ruff]
 line-length = 100
