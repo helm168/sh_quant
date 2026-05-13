@@ -16,14 +16,14 @@ def test_list_themes_includes_known_ones():
     ids = themes.list_themes()
     assert 'ai_compute' in ids
     assert 'baijiu' in ids
-    assert len(ids) >= 17   # 当前 22 个，留余量防误删
+    assert len(ids) >= 17  # 当前 22 个，留余量防误删
 
 
 def test_get_theme_returns_full_dict():
     theme = themes.get_theme('ai_compute')
     assert 'name' in theme
     assert 'stocks' in theme
-    assert 'subtracks' in theme   # ai_compute 应该有 subtrack 定义
+    assert 'subtracks' in theme  # ai_compute 应该有 subtrack 定义
 
 
 def test_get_theme_unknown_raises():
@@ -54,7 +54,7 @@ def test_get_stocks_filter_by_subtrack():
     chips = themes.get_stocks('ai_compute', subtrack='chip')
     assert all(s.get('subtrack') == 'chip' for s in chips)
     codes = [s['code'] for s in chips]
-    assert '688256.SH' in codes   # 寒武纪是 chip subtrack 的代表
+    assert '688256.SH' in codes  # 寒武纪是 chip subtrack 的代表
 
 
 def test_get_stocks_unknown_subtrack_raises():
@@ -80,7 +80,7 @@ def test_find_stock_finds_overlaps():
     hits = themes.find_stock('002460.SZ')
     theme_ids = {h[0] for h in hits}
     assert 'ev_battery' in theme_ids
-    assert len(theme_ids) >= 2   # 至少 2 个主题里
+    assert len(theme_ids) >= 2  # 至少 2 个主题里
 
 
 def test_find_stock_unknown_returns_empty():

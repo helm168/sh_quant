@@ -19,11 +19,14 @@ import pytest
 
 from utils import data as data_mod
 
-
 # ---------- 缓存命中（不调 tushare）----------
 
+
 def test_load_daily_cache_hit_does_not_call_tushare(
-    tmp_stocks_dir, fake_daily_df, fake_adj_df, mocker,
+    tmp_stocks_dir,
+    fake_daily_df,
+    fake_adj_df,
+    mocker,
 ):
     """缓存文件已存在时，应该直接读 parquet，不该调用 _get_tushare_pro。"""
     # 预先把 parquet 写到 tmp_stocks_dir
@@ -42,6 +45,7 @@ def test_load_daily_cache_hit_does_not_call_tushare(
 
 
 # ---------- 复权数学（核心）----------
+
 
 def test_load_daily_qfq_last_day_unchanged(tmp_stocks_dir, fake_pro):
     """qfq 基准是 end 当日的 adj_factor，所以 end 当日的 close 应该等于 raw。"""
@@ -69,6 +73,7 @@ def test_load_daily_none_returns_raw(tmp_stocks_dir, fake_pro):
 
 
 # ---------- 边界 / 错误 ----------
+
 
 def test_load_daily_invalid_adj_raises(tmp_stocks_dir, fake_pro):
     """传入未知 adj 值应该抛 ValueError。"""

@@ -57,9 +57,7 @@ def get_theme(theme_id: str) -> dict:
     """返回完整 theme 字典（含 name / desc / subtracks / stocks）。"""
     themes = _load()
     if theme_id not in themes:
-        raise KeyError(
-            f'未知主题 {theme_id!r}。已定义: {list(themes.keys())}'
-        )
+        raise KeyError(f'未知主题 {theme_id!r}。已定义: {list(themes.keys())}')
     return themes[theme_id]
 
 
@@ -85,14 +83,10 @@ def get_stocks(theme_id: str, subtrack: str | None = None) -> list[dict]:
     defined = set(get_subtracks(theme_id).keys())
     if not defined:
         raise ValueError(
-            f'主题 {theme_id!r} 没有定义 subtracks，'
-            f'无法按 subtrack={subtrack!r} 过滤。'
+            f'主题 {theme_id!r} 没有定义 subtracks，无法按 subtrack={subtrack!r} 过滤。'
         )
     if subtrack not in defined:
-        raise ValueError(
-            f'主题 {theme_id!r} 没有 subtrack={subtrack!r}。'
-            f'可用: {sorted(defined)}'
-        )
+        raise ValueError(f'主题 {theme_id!r} 没有 subtrack={subtrack!r}。可用: {sorted(defined)}')
 
     return [s for s in stocks if s.get('subtrack') == subtrack]
 

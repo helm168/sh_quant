@@ -36,3 +36,5 @@ notebooks/test_*.ipynb
 
 # 个人学习路线 / 持续教育任务（本地维护，不进 git）
 LEARNING_TASKS.md
+
+.envrc
