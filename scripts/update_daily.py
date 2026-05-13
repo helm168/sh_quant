@@ -382,28 +382,96 @@ def fetch_one(ts_code: str, start: str, end: str) -> tuple[pd.DataFrame | None, 
 
 # ---------- 单只 ticker 增量更新 ----------
 
+def _last_trading_day_approx(today: pd.Timestamp) -> pd.Timestamp:
+    """粗略算"最近一个交易日"，只考虑周末，不查节假日历。
+
+    今天是周一 → 上周五；周二-周五 → 昨天；周六 → 周五；周日 → 周五。
+    边界情况（节假日跑批）会让"上次更新到上一工作日"的股票被误判为需要 fetch，
+    可接受。要精确需要查 Tushare trade_cal 或 NYSE 日历，得不偿失。
+    """
+    today = today.normalize()
+    wd = today.weekday()  # Monday=0
+    if wd == 0:        # Monday
+        return today - pd.Timedelta(days=3)
+    if wd == 5:        # Saturday
+        return today - pd.Timedelta(days=1)
+    if wd == 6:        # Sunday
+        return today - pd.Timedelta(days=2)
+    # Tuesday-Friday: yesterday
+    return today - pd.Timedelta(days=1)
+
+
+def _peek_last_date_fast(fp: Path) -> pd.Timestamp | None:
+    """O(1) 从 parquet metadata 取 trade_date 的 max，不读 data。
+
+    pyarrow 写 parquet 时默认给每个 row group 写 column statistics（min/max/...）。
+    读 metadata 是常数时间 ~0.5ms，对比读完整 200KB parquet 的 10-30ms 快一个量级。
+    取不到 statistics 时 fallback 到只读 trade_date 一列。
+    """
+    try:
+        import pyarrow.parquet as pq
+        pf = pq.ParquetFile(fp)
+        schema = pf.schema_arrow
+        if 'trade_date' not in schema.names:
+            return None
+        col_idx = schema.names.index('trade_date')
+        max_val = None
+        for rg_idx in range(pf.num_row_groups):
+            stats = pf.metadata.row_group(rg_idx).column(col_idx).statistics
+            if stats is None or not stats.has_max_value:
+                # 没 stats，退到读列
+                df = pd.read_parquet(fp, columns=['trade_date'])
+                return pd.to_datetime(df['trade_date']).max().normalize()
+            v = stats.max
+            if max_val is None or v > max_val:
+                max_val = v
+        if max_val is None:
+            return None
+        return pd.Timestamp(max_val).normalize()
+    except Exception:
+        # 任何意外都退到完整读 (慢但稳)
+        try:
+            df = pd.read_parquet(fp, columns=['trade_date'])
+            return pd.to_datetime(df['trade_date']).max().normalize()
+        except Exception:
+            return None
+
+
 def update_one(ts_code: str, lookback_days: int, cache_dir: Path, force: bool) -> dict:
     """
     增量更新一只 ticker。
     返回 {ticker, status, vendor, new_rows, total_rows, latest, error?}。
     """
     fp = cache_dir / f'{ts_code}.parquet'
-    end = pd.Timestamp.today().strftime('%Y-%m-%d')
+    today = pd.Timestamp.today().normalize()
+    last_td = _last_trading_day_approx(today)
+    end = today.strftime('%Y-%m-%d')
 
-    # 决定起点
+    # 快速 fresh 检查：只读 metadata，不读数据
+    if fp.exists() and not force:
+        peek_last = _peek_last_date_fast(fp)
+        if peek_last is not None and peek_last >= last_td:
+            return {
+                'ticker': ts_code, 'status': 'fresh',
+                'vendor': '-', 'new_rows': 0,
+                'total_rows': -1,  # 没读 data 不知道行数，省 IO
+                'latest': peek_last.strftime('%Y-%m-%d'),
+            }
+
+    # 走到这里说明要 fetch — 现在才读完整 parquet
     old: pd.DataFrame | None = None
     if fp.exists() and not force:
         try:
             old = pd.read_parquet(fp)
             old['trade_date'] = pd.to_datetime(old['trade_date'])
-            last_date = old['trade_date'].max()
+            last_date = old['trade_date'].max().normalize()
             start_dt = last_date - pd.Timedelta(days=lookback_days)
             start = start_dt.strftime('%Y-%m-%d')
-        except Exception as e:
+        except Exception:
             old = None
             start = '2015-01-01'
     else:
-        start = '2015-01-01'  # 首次拉/force 重拉，统一从 2015 起
+        start = '2015-01-01'
 
     # 拉
     df_new, vendor = fetch_one(ts_code, start, end)
@@ -564,6 +632,8 @@ def main() -> int:
     ap.add_argument('--force', action='store_true', help='强制全量重拉（破缓存）')
     ap.add_argument('--cache-dir', default=str(DEFAULT_CACHE_DIR),
                     help='数据目录（默认 sh_quant/data_cache/stocks/）')
+    ap.add_argument('--verbose', action='store_true',
+                    help='打印所有 ticker 状态（默认跳过 fresh 的刷屏行）')
     args = ap.parse_args()
 
     cache_dir = Path(args.cache_dir).expanduser()
@@ -580,6 +650,7 @@ def main() -> int:
 
     t0 = time.time()
     results = []
+    fresh_count = 0
     with ThreadPoolExecutor(max_workers=args.workers) as ex:
         futures = {
             ex.submit(update_one, t, args.lookback, cache_dir, args.force): t
@@ -594,14 +665,28 @@ def main() -> int:
                 r = {'ticker': t, 'status': 'error', 'vendor': '?',
                      'new_rows': 0, 'total_rows': 0, 'error': str(e)}
             results.append(r)
-            status_tag = {'ok': '✓', 'unchanged': '=', 'empty': '○',
-                          'error': '✗'}.get(r['status'], '?')
+
+            # fresh 是常见情况且无信息量，默认不打印（终端 I/O 是瓶颈）
+            # 每 500 个进度刷一行心跳，让用户知道还在跑
+            if r['status'] == 'fresh':
+                fresh_count += 1
+                if not args.verbose and fresh_count % 500 == 0:
+                    print(f'  [{i:>{width}}/{len(tickers)}] '
+                          f'· (已跳过 {fresh_count} 个 fresh)')
+                if not args.verbose:
+                    continue
+
+            status_tag = {'ok': '✓', 'unchanged': '=', 'fresh': '·',
+                          'empty': '○', 'error': '✗'}.get(r['status'], '?')
             if r['status'] == 'ok':
                 extra = (f"  latest={r.get('latest', '-')}, +{r['new_rows']} new, "
                          f"vendor={r['vendor']}")
             elif r['status'] == 'unchanged':
                 extra = (f"  latest={r.get('latest', '-')}, no change "
                          f"(skipped write)")
+            elif r['status'] == 'fresh':
+                extra = (f"  latest={r.get('latest', '-')}, fresh "
+                         f"(skipped fetch, metadata-only)")
             else:
                 extra = f"  ERR: {r.get('error', '?')}"
             print(f'  [{i:>{width}}/{len(tickers)}] {status_tag} {t:<14}{extra}')
@@ -609,15 +694,19 @@ def main() -> int:
     elapsed = time.time() - t0
     ok = sum(1 for r in results if r['status'] == 'ok')
     unchanged = sum(1 for r in results if r['status'] == 'unchanged')
+    fresh = sum(1 for r in results if r['status'] == 'fresh')
     new_rows_total = sum(r['new_rows'] for r in results if r['status'] == 'ok')
     print('-' * 70)
     summary = f'完成: {ok} 更新'
     if unchanged:
         summary += f' / {unchanged} 无变化(跳过写)'
+    if fresh:
+        summary += f' / {fresh} 已最新(跳过 fetch)'
     summary += f', +{new_rows_total} 新行, 用时 {elapsed:.1f}s'
     print(summary)
 
-    failed = [r for r in results if r['status'] != 'ok']
+    # 真正"失败/空"：只看 empty 和 error，不算 fresh/unchanged（它们是成功的）
+    failed = [r for r in results if r['status'] in ('empty', 'error')]
     if failed:
         print(f'\n失败/空 {len(failed)} 只:')
         for r in failed[:20]:
