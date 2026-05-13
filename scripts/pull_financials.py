@@ -346,15 +346,27 @@ def fetch_us_financials(ts_code: str, key: str) -> pd.DataFrame | None:
     if df_inc.empty:
         return None
 
-    df = df_inc
+    # 三张表都先按 end_date dedupe (keep latest filing). FMP 偶尔会对同一报告期
+    # 先后 file 两份 (restate)，留两份会让 left merge 复制行 → 后面对 df 赋值
+    # 长度对不上 → "Length of values (29) does not match length of index (30)".
+    # JCAP / RCAT 出过这个 bug.
+    for d in (df_inc, df_bal, df_cf):
+        if not d.empty:
+            d.drop_duplicates('end_date', keep='first', inplace=True)
+
+    df = df_inc.reset_index(drop=True)
     for other in (df_bal, df_cf):
         if not other.empty:
             df = df.merge(other, on='end_date', how='left')
 
-    # 公告日 FMP 在 filingDate
+    # 公告日 FMP 在 fillingDate。用 date→ann_date 映射, 不依赖 df 长度
+    # (即使 merge 出意外行复制也不崩, dedupe 已经覆盖了, 这是双保险)
+    ann_date_by_end = {
+        r.get('date'): r.get('fillingDate') or r.get('acceptedDate') or r.get('date')
+        for r in income
+    }
     df['ann_date'] = pd.to_datetime(
-        [r.get('fillingDate') or r.get('acceptedDate') or r.get('date')
-         for r in income], errors='coerce',
+        df['end_date'].map(ann_date_by_end), errors='coerce',
     )
     df['end_date'] = pd.to_datetime(df['end_date'], errors='coerce')
     # FMP income 返回里自带 period ('Q1'/'Q2'/'Q3'/'Q4'/'FY')，按 date 对齐
