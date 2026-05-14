@@ -383,22 +383,38 @@ def fetch_one(ts_code: str, start: str, end: str) -> tuple[pd.DataFrame | None, 
 # ---------- 单只 ticker 增量更新 ----------
 
 def _last_trading_day_approx(today: pd.Timestamp) -> pd.Timestamp:
-    """粗略算"最近一个交易日"，只考虑周末，不查节假日历。
+    """粗略算"最近一个**已经收盘**的交易日"，考虑周末 + 当日是否过了收盘时间。
 
-    今天是周一 → 上周五；周二-周五 → 昨天；周六 → 周五；周日 → 周五。
-    边界情况（节假日跑批）会让"上次更新到上一工作日"的股票被误判为需要 fetch，
-    可接受。要精确需要查 Tushare trade_cal 或 NYSE 日历，得不偿失。
+    判断逻辑:
+      - 周末: 返回最近的工作日 (周六→周五, 周日→周五)
+      - 工作日且当前时间已过 17:00 中国时间: 今天本身就算最近交易日
+        (A 股 15:00 收盘 / 港股 16:00 收盘, 加 1h buffer 给 vendor 入库)
+      - 工作日但当前时间 < 17:00: 今天数据还没 ready, 返回昨天/上周五
+      - 周一早上: 上周五
+
+    边界 (节假日跑批) 会让"上次更新到上一工作日"的股票被误判为需要 fetch,
+    Tushare/efinance 会返空, 脚本 fallback 到 'empty' status, 不阻塞流程.
+
+    NOTE: 时区用 pandas 本地, 假设跑批机器在中国时区. 美股口径凌晨 4-5 点收
+    (CN tz), 早上 8 点 cron 时美股昨天数据已经 ready, last_td 还是返回昨天,
+    符合预期 (美股 5/13 收盘 → 5/14 凌晨入库 → 5/14 早 8 点 cron 拉到 5/13).
     """
     today = today.normalize()
     wd = today.weekday()  # Monday=0
-    if wd == 0:        # Monday
-        return today - pd.Timedelta(days=3)
     if wd == 5:        # Saturday
         return today - pd.Timedelta(days=1)
     if wd == 6:        # Sunday
         return today - pd.Timedelta(days=2)
-    # Tuesday-Friday: yesterday
-    return today - pd.Timedelta(days=1)
+    # 工作日: 看时间. pd.Timestamp.now() 拿带时间的当前时刻
+    now = pd.Timestamp.now().normalize() + pd.Timedelta(
+        hours=pd.Timestamp.now().hour,
+        minutes=pd.Timestamp.now().minute,
+    )
+    after_close = (pd.Timestamp.now().hour >= 17)
+    if wd == 0:        # Monday
+        return today if after_close else today - pd.Timedelta(days=3)
+    # Tuesday-Friday
+    return today if after_close else today - pd.Timedelta(days=1)
 
 
 def _peek_last_date_fast(fp: Path) -> pd.Timestamp | None:
