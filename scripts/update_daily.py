@@ -96,6 +96,27 @@ def parse_market(ts_code: str) -> str:
 
 _WARN_SEEN: set[str] = set()
 
+# ---------- Tushare 批量预拉缓存 ----------
+# 设计目标: daily cron 的本质 = 给每只股票 append 今天的 bar. 直接调
+# `pro.daily(trade_date=今天)` 一次拿全市场 ~5500 行, ~2-4s, 替代 5000+ 次
+# per-ticker 调用.
+#
+# 范围: batch 只覆盖最近 1 个交易日 (latest_td). 这是 fast-path 服务的窗口.
+#   - Fresh ticker (last_cached = 昨天): 请求 [昨天-1, 今天]. fast-path 返回今天
+#     的 1 行. update_one 的 merge 把它接到老数据后面. ✓
+#   - 部分覆盖也接受: fast-path 返回缓存里能匹配的子集, 缺的天数由 old 老数据
+#     提供 (drop_duplicates 兜底). 这等价于"信任 batch 的最新数据, 不主动校
+#     验更早的源头回填". 想要源头校验请用 --verify.
+#
+# 收益: 2549 只 A 股 × 2 endpoint = 5098 次 (Tushare 500/min, 10 min)
+#       → 1 trade_date × 2 endpoint = 2 次 (~4s).
+_BATCH_CACHE: dict[str, pd.DataFrame] = {}
+_BATCH_MIN_DATE: pd.Timestamp | None = None
+_BATCH_MAX_DATE: pd.Timestamp | None = None
+_BATCH_HIT_COUNT = 0
+_BATCH_MISS_COUNT = 0
+_VERIFY_MODE = False  # --verify N 设置时为 True, fast-path 强制 skip
+
 
 def _warn_once(msg: str, key: str = '') -> None:
     """避免并发线程里同一消息打很多次。key 可以分多种警告独立去重。"""
@@ -146,8 +167,147 @@ def _fetch_a_share_via_efinance(ts_code: str, start: str, end: str) -> pd.DataFr
     return df[[c for c in cols if c in df.columns]]
 
 
+def _latest_trade_date(today: pd.Timestamp) -> str | None:
+    """问 Tushare 拿最近一个交易日 (YYYYMMDD).
+
+    不依赖 trade_cal (有些积分级别返空), 直接对最近 5 个日历日各试 pro.daily()
+    取一个 sample ticker, 第一个返非空的就是最近交易日.
+    """
+    try:
+        import tushare as ts
+    except ImportError:
+        return None
+    token = os.getenv('TUSHARE_TOKEN')
+    if not token or token == 'your_tushare_token_here':
+        return None
+    ts.set_token(token)
+    pro = ts.pro_api()
+
+    # 倒序遍历最近 7 个日历日, 跳过周末和未来日期
+    for back in range(0, 7):
+        cand = today - pd.Timedelta(days=back)
+        if cand.weekday() >= 5:  # 周六周日
+            continue
+        td_str = cand.strftime('%Y%m%d')
+        try:
+            sample = pro.daily(trade_date=td_str)
+            if sample is not None and not sample.empty:
+                return td_str
+        except Exception:
+            continue
+    return None
+
+
+def _prefetch_tushare_batch(today: pd.Timestamp) -> int:
+    """按 trade_date 批量预拉最近 1 个交易日的全 A 股 daily + adj_factor.
+
+    daily cron 的核心场景: 给每只股票 append 今天的 bar. 一个 endpoint 一次拿
+    全市场 ~5500 行, 比 5000+ 次 per-ticker 调用快 ~150x.
+
+    返回缓存的 ts_code 数量; 任何失败 (无 token / API 挂 / 积分不够) 返回 0,
+    主流程自动降级到 per-ticker.
+    """
+    global _BATCH_CACHE, _BATCH_MIN_DATE, _BATCH_MAX_DATE
+
+    try:
+        import tushare as ts
+    except ImportError:
+        return 0
+    token = os.getenv('TUSHARE_TOKEN')
+    if not token or token == 'your_tushare_token_here':
+        return 0
+    ts.set_token(token)
+    pro = ts.pro_api()
+
+    td_str = _latest_trade_date(today)
+    if td_str is None:
+        print('  [batch] 找不到最近交易日, 降级到 per-ticker', flush=True)
+        return 0
+
+    print(f'  [batch] 预拉 trade_date={td_str} 全市场 daily + adj_factor',
+          flush=True)
+    t_call = time.time()
+    try:
+        daily = pro.daily(trade_date=td_str)
+    except Exception as e:
+        print(f'  [batch] daily(trade_date={td_str}) 失败: {e}', flush=True)
+        return 0
+    if daily is None or daily.empty:
+        return 0
+    print(f'  [batch] daily: {len(daily)} 行, {time.time() - t_call:.1f}s',
+          flush=True)
+
+    t_call = time.time()
+    try:
+        adj = pro.adj_factor(trade_date=td_str)
+    except Exception as e:
+        print(f'  [batch] adj_factor(trade_date={td_str}) 失败 ({e}), '
+              f'用 1.0 兜底', flush=True)
+        adj = None
+
+    if adj is not None and not adj.empty:
+        adj = adj[['ts_code', 'trade_date', 'adj_factor']].drop_duplicates(
+            ['ts_code', 'trade_date'])
+        merged = daily.merge(adj, on=['ts_code', 'trade_date'], how='left')
+        print(f'  [batch] adj_factor: {len(adj)} 行, '
+              f'{time.time() - t_call:.1f}s', flush=True)
+    else:
+        merged = daily.copy()
+        merged['adj_factor'] = 1.0
+
+    merged['adj_factor'] = merged['adj_factor'].fillna(1.0)
+    merged['trade_date'] = pd.to_datetime(merged['trade_date'], format='%Y%m%d')
+
+    by_code: dict[str, pd.DataFrame] = {}
+    for code, sub in merged.groupby('ts_code'):
+        by_code[str(code)] = (sub.sort_values('trade_date')
+                                 .reset_index(drop=True))
+
+    _BATCH_CACHE = by_code
+    td_ts = pd.to_datetime(td_str, format='%Y%m%d')
+    _BATCH_MIN_DATE = td_ts
+    _BATCH_MAX_DATE = td_ts
+
+    return len(by_code)
+
+
 def _fetch_a_share_via_tushare(ts_code: str, start: str, end: str) -> pd.DataFrame | None:
-    """A 股走 Tushare（带 adj_factor）。用作 fallback 或定期完整复权刷新。"""
+    """A 股走 Tushare（带 adj_factor）。用作 fallback 或定期完整复权刷新。
+
+    Fast path: 如果 _prefetch_tushare_batch 已跑过且 start 落在缓存窗口里, 直接
+    返回内存切片, 不调网络.
+
+    Slow path (cache miss / 缓存窗口外 / 全量回填): 原 per-ticker pro.daily +
+    pro.adj_factor 接口.
+    """
+    global _BATCH_HIT_COUNT, _BATCH_MISS_COUNT
+
+    # ---- Fast path: 命中批量缓存 ----
+    # 严格语义: 只有 batch 完全覆盖请求范围 [start, end] 时才走 fast-path.
+    # 否则 fall-through 到 slow path 由 per-ticker 接口正确处理多天范围.
+    # 这避免了 "batch 只有今天 + ticker 缺 5 天 → merge 后中间留空洞" 的 bug.
+    if _VERIFY_MODE:
+        pass  # --verify 强制走 slow path 做源头校验
+    elif _BATCH_MIN_DATE is not None and _BATCH_MAX_DATE is not None:
+        try:
+            start_dt = pd.Timestamp(start)
+            end_dt = pd.Timestamp(end)
+            # 必须 batch 范围 ⊇ 请求范围 才能完整服务
+            if start_dt >= _BATCH_MIN_DATE and end_dt <= _BATCH_MAX_DATE:
+                cached = _BATCH_CACHE.get(ts_code)
+                if cached is not None and not cached.empty:
+                    mask = ((cached['trade_date'] >= start_dt)
+                            & (cached['trade_date'] <= end_dt))
+                    sliced = cached.loc[mask].copy()
+                    if not sliced.empty:
+                        _BATCH_HIT_COUNT += 1
+                        return sliced
+                # ts_code 不在缓存 (停牌/退市/新股), 落 miss 后 fall-through
+                _BATCH_MISS_COUNT += 1
+        except Exception:
+            pass  # 任何 cache 路径异常 → 静默 fallback 到 per-ticker
+
+    # ---- Slow path: 原 per-ticker 接口 ----
     try:
         import tushare as ts
         from dotenv import load_dotenv
@@ -464,6 +624,7 @@ def update_one(ts_code: str, lookback_days: int, cache_dir: Path, force: bool) -
     end = today.strftime('%Y-%m-%d')
 
     # 快速 fresh 检查：只读 metadata，不读数据
+    peek_last = None
     if fp.exists() and not force:
         peek_last = _peek_last_date_fast(fp)
         if peek_last is not None and peek_last >= last_td:
@@ -474,20 +635,42 @@ def update_one(ts_code: str, lookback_days: int, cache_dir: Path, force: bool) -
                 'latest': peek_last.strftime('%Y-%m-%d'),
             }
 
+    # 退市/historical-universe 检测: 只对 A 股 + batch 加载时生效
+    #   场景 (a): 有 parquet 但 90+ 天没新数据 + 不在 batch → 退市
+    #   场景 (b): 无 parquet (拉过几次都拉不到) + 不在 batch → universe 残留
+    #             (e.g. 000003.SZ PT 金田 A 2002 年就退了)
+    # 这两种都跳过 slow path 减无谓 API call.
+    # 真正长期停牌的股票, 复牌当天会进 batch → 这里不会误判.
+    if (not force
+            and _BATCH_MIN_DATE is not None
+            and parse_market(ts_code) == 'cn_a'
+            and ts_code not in _BATCH_CACHE
+            and (peek_last is None
+                 or peek_last < today - pd.Timedelta(days=90))):
+        return {
+            'ticker': ts_code, 'status': 'delisted',
+            'vendor': '-', 'new_rows': 0, 'total_rows': -1,
+            'latest': (peek_last.strftime('%Y-%m-%d')
+                       if peek_last is not None else '-'),
+        }
+
     # 走到这里说明要 fetch — 现在才读完整 parquet
+    # start 语义: 拉最近 lookback 个交易日 (calendar 范围, vendor 自动过滤周末)
+    # lookback=1 → start=today (1 天); lookback=7 → start=6天前 (~7 天)
+    # 注: 若 lookback=1 但本地 last_cached 比 1 天前还老 (停牌/catch-up), 中间天会
+    # 留空洞. 用户用 --lookback N 显式控制要不要追历史
     old: pd.DataFrame | None = None
     if fp.exists() and not force:
         try:
             old = pd.read_parquet(fp)
             old['trade_date'] = pd.to_datetime(old['trade_date'])
-            last_date = old['trade_date'].max().normalize()
-            start_dt = last_date - pd.Timedelta(days=lookback_days)
-            start = start_dt.strftime('%Y-%m-%d')
         except Exception:
             old = None
-            start = '2015-01-01'
-    else:
+    if force:
         start = '2015-01-01'
+    else:
+        start_dt = today - pd.Timedelta(days=max(lookback_days - 1, 0))
+        start = start_dt.strftime('%Y-%m-%d')
 
     # 拉
     df_new, vendor = fetch_one(ts_code, start, end)
@@ -642,8 +825,14 @@ def main() -> int:
     src.add_argument('--tickers', help='逗号分隔的 ts_code 列表，如 600519.SH,NVDA.US')
     src.add_argument('--file', help='ticker 列表文件，每行一个')
     ap.add_argument('--market', help='只更新特定市场 (cn/us/hk)，逗号分隔')
-    ap.add_argument('--lookback', type=int, default=7,
-                    help='回退天数（默认 7，节假日多时调大）')
+    ap.add_argument('--lookback', type=int, default=1,
+                    help=('拉最近 N 个交易日 (默认 1 只拉今天; --lookback 7 '
+                          '拉最近 7 天用于 catch-up). lookback=1 走 fast-path, '
+                          'lookback>1 自动走 per-ticker slow path'))
+    ap.add_argument('--verify', type=int, default=0, metavar='N',
+                    help=('源头校验模式: 跳过 batch fast-path, per-ticker '
+                          '重拉最近 N 天用于检测 Tushare 数据回填. 0 = 不校验 '
+                          '(默认). 周末手动跑 --verify 7 做一次源头对账'))
     ap.add_argument('--workers', type=int, default=5, help='并发线程数')
     ap.add_argument('--force', action='store_true', help='强制全量重拉（破缓存）')
     ap.add_argument('--cache-dir', default=str(DEFAULT_CACHE_DIR),
@@ -664,6 +853,59 @@ def main() -> int:
           f'market={args.market or "all"}, force={args.force}')
     print('-' * 70)
 
+    # --verify N: 强制 per-ticker, lookback 改成 N 天用于源头校验
+    global _VERIFY_MODE
+    if args.verify:
+        _VERIFY_MODE = True
+        args.lookback = max(args.lookback, args.verify)
+
+    # 批量预拉 Tushare 开关 (单 trade_date, 2 个 API call ~4s):
+    #   --force / --verify: 强制走 per-ticker, batch 帮不上
+    #   CN ticker < MIN: ticker 少时直接 per-ticker 反而快 (batch 2 call 也要 4s)
+    #   全 fresh: 没有 stale ticker 时跳过 (预扫 parquet metadata)
+    BATCH_MIN_TICKERS = 20
+    cn_tickers = [t for t in tickers if parse_market(t) == 'cn_a']
+    cn_count = len(cn_tickers)
+    skip_batch = bool(args.force or args.verify)
+    if not skip_batch and cn_count >= BATCH_MIN_TICKERS:
+        # 预扫: 计算 stale 数 (peek_last < last_td 的). 全 fresh 时不浪费 batch
+        today_norm = pd.Timestamp.today().normalize()
+        last_td_pre = _last_trading_day_approx(today_norm)
+        n_stale = 0
+        for t in cn_tickers:
+            fp = cache_dir / f'{t}.parquet'
+            if not fp.exists():
+                n_stale += 1
+                continue
+            peek = _peek_last_date_fast(fp)
+            if peek is None or peek < last_td_pre:
+                n_stale += 1
+        if n_stale == 0:
+            print(f'  [batch] 所有 {cn_count} 只 CN ticker 已 fresh '
+                  f'(last_td={last_td_pre.strftime("%Y-%m-%d")}), 跳过 batch')
+            print('-' * 70)
+        else:
+            print(f'  [batch] {n_stale}/{cn_count} CN ticker 待更新, '
+                  f'启动 batch 预拉')
+            t_pre = time.time()
+            n_cached = _prefetch_tushare_batch(today_norm)
+            if n_cached:
+                print(f'  [batch] Tushare 预拉 {n_cached} 只 A 股 @ '
+                      f'{_BATCH_MIN_DATE.strftime("%Y-%m-%d")}, '
+                      f'用时 {time.time() - t_pre:.1f}s')
+            else:
+                print('  [batch] Tushare 预拉未启用 '
+                      '(无 token / API 失败), 走原 per-ticker 路径')
+            print('-' * 70)
+    elif args.verify:
+        print(f'  [batch] --verify {args.verify}, 跳过 batch 走 per-ticker '
+              f'校验最近 {args.verify} 天')
+        print('-' * 70)
+    elif cn_count and cn_count < BATCH_MIN_TICKERS:
+        print(f'  [batch] CN ticker {cn_count} < {BATCH_MIN_TICKERS}, '
+              '跳过 batch (小批次直接 per-ticker)')
+        print('-' * 70)
+
     t0 = time.time()
     results = []
     fresh_count = 0
@@ -682,8 +924,8 @@ def main() -> int:
                      'new_rows': 0, 'total_rows': 0, 'error': str(e)}
             results.append(r)
 
-            # fresh 是常见情况且无信息量，默认不打印（终端 I/O 是瓶颈）
-            # 每 500 个进度刷一行心跳，让用户知道还在跑
+            # fresh / delisted 是噪音, 默认不打印 (终端 I/O 是瓶颈)
+            # 每 500 个进度刷一行心跳, 让用户知道还在跑
             if r['status'] == 'fresh':
                 fresh_count += 1
                 if not args.verbose and fresh_count % 500 == 0:
@@ -691,9 +933,12 @@ def main() -> int:
                           f'· (已跳过 {fresh_count} 个 fresh)')
                 if not args.verbose:
                     continue
+            if r['status'] == 'delisted' and not args.verbose:
+                continue
 
             status_tag = {'ok': '✓', 'unchanged': '=', 'fresh': '·',
-                          'empty': '○', 'error': '✗'}.get(r['status'], '?')
+                          'empty': '○', 'error': '✗',
+                          'delisted': '☠'}.get(r['status'], '?')
             if r['status'] == 'ok':
                 extra = (f"  latest={r.get('latest', '-')}, +{r['new_rows']} new, "
                          f"vendor={r['vendor']}")
@@ -703,6 +948,9 @@ def main() -> int:
             elif r['status'] == 'fresh':
                 extra = (f"  latest={r.get('latest', '-')}, fresh "
                          f"(skipped fetch, metadata-only)")
+            elif r['status'] == 'delisted':
+                extra = (f"  latest={r.get('latest', '-')}, 疑似退市 "
+                         f"(>90d 无新数据且不在 batch 里, skipped)")
             else:
                 extra = f"  ERR: {r.get('error', '?')}"
             print(f'  [{i:>{width}}/{len(tickers)}] {status_tag} {t:<14}{extra}')
@@ -711,6 +959,7 @@ def main() -> int:
     ok = sum(1 for r in results if r['status'] == 'ok')
     unchanged = sum(1 for r in results if r['status'] == 'unchanged')
     fresh = sum(1 for r in results if r['status'] == 'fresh')
+    delisted = sum(1 for r in results if r['status'] == 'delisted')
     new_rows_total = sum(r['new_rows'] for r in results if r['status'] == 'ok')
     print('-' * 70)
     summary = f'完成: {ok} 更新'
@@ -718,8 +967,18 @@ def main() -> int:
         summary += f' / {unchanged} 无变化(跳过写)'
     if fresh:
         summary += f' / {fresh} 已最新(跳过 fetch)'
+    if delisted:
+        summary += f' / {delisted} 疑似退市(跳过)'
     summary += f', +{new_rows_total} 新行, 用时 {elapsed:.1f}s'
     print(summary)
+
+    # 批量缓存命中率: hit = 走 fast path 不调网络的 ticker 次数,
+    # miss = 落在窗口里但 ts_code 不在 batch 结果 (停牌/退市/新股) → fall-through
+    if _BATCH_HIT_COUNT or _BATCH_MISS_COUNT:
+        total = _BATCH_HIT_COUNT + _BATCH_MISS_COUNT
+        pct = 100 * _BATCH_HIT_COUNT // max(total, 1)
+        print(f'  [batch] Tushare cache hit: {_BATCH_HIT_COUNT}/{total} ({pct}%), '
+              f'miss (fall-through to per-ticker): {_BATCH_MISS_COUNT}')
 
     # 真正"失败/空"：只看 empty 和 error，不算 fresh/unchanged（它们是成功的）
     failed = [r for r in results if r['status'] in ('empty', 'error')]
