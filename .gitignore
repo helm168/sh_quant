@@ -38,3 +38,6 @@ notebooks/test_*.ipynb
 LEARNING_TASKS.md
 
 .envrc
+
+# 个人 task / handoff 备忘, 不入仓
+TASKS.md
