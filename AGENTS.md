@@ -171,7 +171,7 @@ for sub_id, sub_name in get_subtracks('ai_compute').items():
 
 ### 作者身份
 
-跟随仓库 / 全局 git config，不要在 commit 里硬编码作者。当前 local config：
+跟随仓库 / 全局 git config，不要在 commit 里硬编码作者；提交时不要传 `--author`，除非用户明确要求改历史或指定身份。当前 local config：
 
 ```
 user.name  = helm168
@@ -197,6 +197,8 @@ user.email = sunhao_1988@msn.cn
 | `perf:`    | 性能优化                             | `perf(data): switch parquet engine to pyarrow`        |
 
 scope 用模块名（`data` / `backtest` / `metrics` / `plot` / `signals` / `notebook` ...），可省。subject 用祈使句、英文小写、不超过 72 字符。
+
+commit message 保持一行描述即可，不写多段正文，除非用户明确要求。
 
 ### 敏感文件
 
