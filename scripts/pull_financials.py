@@ -78,6 +78,7 @@ A 股 (.SH/.SZ/.BJ):
     # 控制并发（FMP 300/min, Tushare 视积分档）
     python scripts/pull_financials.py --workers 5
 """
+
 from __future__ import annotations
 
 import argparse
@@ -85,7 +86,6 @@ import os
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -96,19 +96,39 @@ CACHE_DIR_FIN = PROJECT_ROOT / 'data_cache' / 'financials'
 
 # 统一 schema（最终 parquet 列）
 COMMON_COLS = [
-    'ann_date', 'end_date', 'period', 'fiscal_year', 'currency',
+    'ann_date',
+    'end_date',
+    'period',
+    'fiscal_year',
+    'currency',
     # 利润表
-    'revenue', 'gross_profit', 'operating_income', 'pretax_income', 'net_income',
-    'eps_basic', 'eps_diluted',
+    'revenue',
+    'gross_profit',
+    'operating_income',
+    'pretax_income',
+    'net_income',
+    'eps_basic',
+    'eps_diluted',
     # 资产负债表
-    'total_assets', 'total_liabilities', 'total_equity',
-    'cash_and_equivalents', 'long_term_debt', 'short_term_debt',
+    'total_assets',
+    'total_liabilities',
+    'total_equity',
+    'cash_and_equivalents',
+    'long_term_debt',
+    'short_term_debt',
     # 现金流
-    'operating_cf', 'investing_cf', 'financing_cf',
-    'free_cash_flow', 'capex',
+    'operating_cf',
+    'investing_cf',
+    'financing_cf',
+    'free_cash_flow',
+    'capex',
     # 财务指标
-    'roe', 'roa', 'gross_margin', 'net_margin',
-    'debt_to_equity', 'current_ratio',
+    'roe',
+    'roa',
+    'gross_margin',
+    'net_margin',
+    'debt_to_equity',
+    'current_ratio',
 ]
 
 
@@ -210,18 +230,33 @@ def fetch_a_share_financials(ts_code: str) -> pd.DataFrame | None:
 
     # merge
     df = income[['ann_date', 'end_date'] + list(TUSHARE_INCOME_MAP.values())].copy()
-    df = df.merge(
-        balance[['end_date'] + list(TUSHARE_BALANCE_MAP.values())],
-        on='end_date', how='left',
-    ) if not balance.empty else df
-    df = df.merge(
-        cashflow[['end_date'] + list(TUSHARE_CASHFLOW_MAP.values())],
-        on='end_date', how='left',
-    ) if not cashflow.empty else df
-    df = df.merge(
-        indicator[['end_date'] + list(TUSHARE_INDICATOR_MAP.values())],
-        on='end_date', how='left',
-    ) if not indicator.empty else df
+    df = (
+        df.merge(
+            balance[['end_date'] + list(TUSHARE_BALANCE_MAP.values())],
+            on='end_date',
+            how='left',
+        )
+        if not balance.empty
+        else df
+    )
+    df = (
+        df.merge(
+            cashflow[['end_date'] + list(TUSHARE_CASHFLOW_MAP.values())],
+            on='end_date',
+            how='left',
+        )
+        if not cashflow.empty
+        else df
+    )
+    df = (
+        df.merge(
+            indicator[['end_date'] + list(TUSHARE_INDICATOR_MAP.values())],
+            on='end_date',
+            how='left',
+        )
+        if not indicator.empty
+        else df
+    )
 
     # 重命名到统一 schema
     rename_dict = {}
@@ -366,18 +401,26 @@ def fetch_us_financials(ts_code: str, key: str) -> pd.DataFrame | None:
         for r in income
     }
     df['ann_date'] = pd.to_datetime(
-        df['end_date'].map(ann_date_by_end), errors='coerce',
+        df['end_date'].map(ann_date_by_end),
+        errors='coerce',
     )
     df['end_date'] = pd.to_datetime(df['end_date'], errors='coerce')
     # FMP income 返回里自带 period ('Q1'/'Q2'/'Q3'/'Q4'/'FY')，按 date 对齐
     # 注意：NVDA 等非日历年财报（财年 Jan 末）月份不在 {3,6,9,12}，不能用月份推
     income_period_by_date = {r.get('date'): r.get('period') for r in income}
-    income_year_by_date = {r.get('date'): r.get('calendarYear') or r.get('fiscalYear')
-                            for r in income}
+    income_year_by_date = {
+        r.get('date'): r.get('calendarYear') or r.get('fiscalYear') for r in income
+    }
     df['period'] = df['end_date'].dt.strftime('%Y-%m-%d').map(income_period_by_date)
-    df['fiscal_year'] = df['end_date'].dt.strftime('%Y-%m-%d').map(
-        income_year_by_date,
-    ).fillna(df['end_date'].dt.year).astype('Int64')
+    df['fiscal_year'] = (
+        df['end_date']
+        .dt.strftime('%Y-%m-%d')
+        .map(
+            income_year_by_date,
+        )
+        .fillna(df['end_date'].dt.year)
+        .astype('Int64')
+    )
     df['currency'] = 'USD'
 
     # 从原始字段算出财务指标（FMP Starter 没有 key-metrics quarter）
@@ -394,12 +437,9 @@ def fetch_us_financials(ts_code: str, key: str) -> pd.DataFrame | None:
     if 'net_income' in df.columns and 'revenue' in df.columns:
         df['net_margin'] = _safe_div(df['net_income'], df['revenue']) * 100
     if 'total_liabilities' in df.columns and 'total_equity' in df.columns:
-        df['debt_to_equity'] = _safe_div(df['total_liabilities'],
-                                          df['total_equity'])
-    if ('total_current_assets' in df.columns and
-            'total_current_liabilities' in df.columns):
-        df['current_ratio'] = _safe_div(df['total_current_assets'],
-                                         df['total_current_liabilities'])
+        df['debt_to_equity'] = _safe_div(df['total_liabilities'], df['total_equity'])
+    if 'total_current_assets' in df.columns and 'total_current_liabilities' in df.columns:
+        df['current_ratio'] = _safe_div(df['total_current_assets'], df['total_current_liabilities'])
 
     # 补齐缺失列
     for c in COMMON_COLS:
@@ -439,7 +479,9 @@ def update_one(ts_code: str, fmp_key: str | None, force: bool) -> dict:
     df.to_parquet(fp, index=False, compression='snappy')
 
     return {
-        'ticker': ts_code, 'status': 'ok', 'vendor': vendor,
+        'ticker': ts_code,
+        'status': 'ok',
+        'vendor': vendor,
         'rows': len(df),
         'earliest': df['end_date'].min().strftime('%Y-%m-%d') if 'end_date' in df else '-',
         'latest': df['end_date'].max().strftime('%Y-%m-%d') if 'end_date' in df else '-',
@@ -464,11 +506,15 @@ def collect_tickers(args) -> list[str]:
 
     if args.market:
         markets = set(args.market.split(','))
+
         def keep(t: str) -> bool:
             m = parse_market(t)
-            return ((m == 'cn_a' and 'cn' in markets) or
-                    (m == 'us' and 'us' in markets) or
-                    (m == 'cn_hk' and 'hk' in markets))
+            return (
+                (m == 'cn_a' and 'cn' in markets)
+                or (m == 'us' and 'us' in markets)
+                or (m == 'cn_hk' and 'hk' in markets)
+            )
+
         ts_set = {t for t in ts_set if keep(t)}
 
     return sorted(ts_set)
@@ -478,6 +524,7 @@ def main() -> int:
     # 入口加载 .env
     try:
         from dotenv import load_dotenv
+
         load_dotenv(PROJECT_ROOT / '.env')
     except ImportError:
         pass
@@ -487,8 +534,9 @@ def main() -> int:
     )
     ap.add_argument('--tickers', help='逗号分隔的 ts_code 列表')
     ap.add_argument('--market', help='只跑特定市场 (cn/us/hk)，逗号分隔')
-    ap.add_argument('--workers', type=int, default=3,
-                    help='并发线程数（默认 3，避开 Tushare 速率限）')
+    ap.add_argument(
+        '--workers', type=int, default=3, help='并发线程数（默认 3，避开 Tushare 速率限）'
+    )
     ap.add_argument('--force', action='store_true', help='覆盖已有缓存')
     args = ap.parse_args()
 
@@ -501,17 +549,15 @@ def main() -> int:
     print(f'拉 {len(tickers)} 只股票财务数据 → {CACHE_DIR_FIN.relative_to(PROJECT_ROOT)}/')
     print(f'并发 {args.workers}, force={args.force}, market={args.market or "all"}')
     if fmp_key:
-        print(f'FMP key: 已配置')
+        print('FMP key: 已配置')
     else:
-        print(f'⚠️  FMP_API_KEY 未配置，美股将跳过')
+        print('⚠️  FMP_API_KEY 未配置，美股将跳过')
     print('-' * 70)
 
     t0 = time.time()
     results = []
     with ThreadPoolExecutor(max_workers=args.workers) as ex:
-        futures = {
-            ex.submit(update_one, t, fmp_key, args.force): t for t in tickers
-        }
+        futures = {ex.submit(update_one, t, fmp_key, args.force): t for t in tickers}
         width = len(str(len(tickers)))
         for i, fut in enumerate(as_completed(futures), 1):
             t = futures[fut]
@@ -520,17 +566,15 @@ def main() -> int:
             except Exception as e:
                 r = {'ticker': t, 'status': 'error', 'error': str(e)}
             results.append(r)
-            status_tag = {'ok': '✓', 'skip': '=', 'empty': '○',
-                          'error': '✗'}.get(r['status'], '?')
+            status_tag = {'ok': '✓', 'skip': '=', 'empty': '○', 'error': '✗'}.get(r['status'], '?')
             if r['status'] == 'ok':
-                extra = (f"  {r['rows']} 季报, {r['earliest']}→{r['latest']}, "
-                         f"vendor={r['vendor']}")
+                extra = f'  {r["rows"]} 季报, {r["earliest"]}→{r["latest"]}, vendor={r["vendor"]}'
             elif r['status'] == 'skip':
-                extra = f"  已缓存"
+                extra = '  已缓存'
             elif r['status'] == 'empty':
-                extra = f"  无数据 ({r.get('vendor', '?')})"
+                extra = f'  无数据 ({r.get("vendor", "?")})'
             else:
-                extra = f"  ERR: {r.get('error', '?')}"
+                extra = f'  ERR: {r.get("error", "?")}'
             print(f'  [{i:>{width}}/{len(tickers)}] {status_tag} {t:<14}{extra}')
 
     elapsed = time.time() - t0
@@ -544,8 +588,7 @@ def main() -> int:
     if failed and len(failed) <= 20:
         print('\n失败:')
         for r in failed[:20]:
-            print(f"  {r['ticker']}: {r['status']} - "
-                  f"{r.get('error', r.get('vendor', '?'))}")
+            print(f'  {r["ticker"]}: {r["status"]} - {r.get("error", r.get("vendor", "?"))}')
 
     return 0 if not failed else (1 if ok > 0 else 2)
 

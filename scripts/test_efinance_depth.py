@@ -14,29 +14,28 @@
     pip install efinance  # 如果没装
     python scripts/test_efinance_depth.py
 """
+
 from __future__ import annotations
 
 from datetime import datetime
-from pathlib import Path
 
 try:
     import efinance as ef
 except ImportError:
-    raise SystemExit('efinance 没装，先 pip install efinance')
+    raise SystemExit('efinance 没装，先 pip install efinance') from None
 
 import pandas as pd
-
 
 # 跨市场样本：每个市场挑 1-2 只大盘股
 TARGETS = [
     # (中文名, efinance 代码, 市场)
-    ('贵州茅台',       '600519', 'A 股'),
-    ('平安银行',       '000001', 'A 股'),
-    ('腾讯控股',       '00700',  '港股'),
-    ('中芯国际 HK',    '00981',  '港股'),
-    ('阿里巴巴 HK',    '09988',  '港股'),
-    ('英伟达',         'NVDA',   '美股'),
-    ('苹果',           'AAPL',   '美股'),
+    ('贵州茅台', '600519', 'A 股'),
+    ('平安银行', '000001', 'A 股'),
+    ('腾讯控股', '00700', '港股'),
+    ('中芯国际 HK', '00981', '港股'),
+    ('阿里巴巴 HK', '09988', '港股'),
+    ('英伟达', 'NVDA', '美股'),
+    ('苹果', 'AAPL', '美股'),
 ]
 
 # 测试 4 个起点：从最理想（2005）到最保底（2020）
@@ -145,7 +144,7 @@ def main() -> None:
     print('\n' + '=' * 80)
     print('\n【结论】按市场汇总 efinance 最深历史:\n')
     market_depth: dict = {}
-    for name, market, r in depth_results:
+    for _name, market, r in depth_results:
         if not r['reachable_earliest']:
             continue
         ear = r['reachable_earliest']

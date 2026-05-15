@@ -38,6 +38,7 @@ TUSHARE_TOKEN（.env 里）
 退市股的 ts_code 后缀依然是 .SH / .SZ（保留交易所归属），文件名约定与现存
 一致。Tushare 的 daily 接口对已退市股仍可查到历史数据，不需要特殊处理。
 """
+
 from __future__ import annotations
 
 import argparse
@@ -80,8 +81,7 @@ def fetch_delisted_universe(pro) -> pd.DataFrame:
     try:
         df = pro.stock_basic(
             list_status='D',
-            fields=('ts_code,symbol,name,area,industry,market,exchange,'
-                    'list_date,delist_date'),
+            fields=('ts_code,symbol,name,area,industry,market,exchange,list_date,delist_date'),
         )
     except Exception as e:
         if any(s in str(e) for s in PERMISSION_KEYWORDS):
@@ -90,9 +90,21 @@ def fetch_delisted_universe(pro) -> pd.DataFrame:
     if df is None or df.empty:
         sys.exit('stock_basic(list_status=D) 返回空，请确认 Tushare 权限。')
 
-    keep_cols = [c for c in ['ts_code', 'symbol', 'name', 'area', 'industry',
-                              'market', 'exchange', 'list_date', 'delist_date']
-                 if c in df.columns]
+    keep_cols = [
+        c
+        for c in [
+            'ts_code',
+            'symbol',
+            'name',
+            'area',
+            'industry',
+            'market',
+            'exchange',
+            'list_date',
+            'delist_date',
+        ]
+        if c in df.columns
+    ]
     df = df[keep_cols].copy()
 
     # 日期列转 datetime
@@ -140,13 +152,16 @@ def main() -> None:
     ap = argparse.ArgumentParser(description='补 A 股退市股历史数据')
     ap.add_argument('--start', default='20150101', help='起始日期 YYYYMMDD')
     ap.add_argument('--end', default='', help='结束日期 YYYYMMDD（默认到退市日）')
-    ap.add_argument('--sleep', type=float, default=0.3,
-                    help='每次调用之间 sleep 秒数（避开 tushare 速率限）')
+    ap.add_argument(
+        '--sleep', type=float, default=0.3, help='每次调用之间 sleep 秒数（避开 tushare 速率限）'
+    )
     ap.add_argument('--force', action='store_true', help='已缓存的也重拉')
-    ap.add_argument('--metadata-only', action='store_true',
-                    help='只刷新 universe/delisted.parquet，不拉个股日线')
-    ap.add_argument('--limit', type=int, default=0,
-                    help='只跑前 N 只（调试用，0 = 全部）')
+    ap.add_argument(
+        '--metadata-only',
+        action='store_true',
+        help='只刷新 universe/delisted.parquet，不拉个股日线',
+    )
+    ap.add_argument('--limit', type=int, default=0, help='只跑前 N 只（调试用，0 = 全部）')
     args = ap.parse_args()
 
     try:
@@ -212,17 +227,18 @@ def main() -> None:
         try:
             df = fetch_one(pro, code, args.start, end_str)
             if df.empty:
-                print(f'  [{i:>{width}}/{m}] empty {code} {name}  '
-                      f'(可能 {args.start} 之后无交易)')
+                print(f'  [{i:>{width}}/{m}] empty {code} {name}  (可能 {args.start} 之后无交易)')
                 failed.append((code, name, 'empty'))
             else:
                 df.to_parquet(out, index=False)
                 af_first, af_last = df['adj_factor'].iloc[0], df['adj_factor'].iloc[-1]
-                af_mark = (''
-                           if af_first == af_last == 1.0
-                           else f', adj={af_first:.3f}→{af_last:.3f}')
-                print(f'  [{i:>{width}}/{m}] ok    {code} {name}  '
-                      f'({len(df)} rows, 退市于 {end_dt.date()}{af_mark})')
+                af_mark = (
+                    '' if af_first == af_last == 1.0 else f', adj={af_first:.3f}→{af_last:.3f}'
+                )
+                print(
+                    f'  [{i:>{width}}/{m}] ok    {code} {name}  '
+                    f'({len(df)} rows, 退市于 {end_dt.date()}{af_mark})'
+                )
         except PermissionError_ as e:
             sys.exit(
                 f'\n[{i}/{m}] 权限/积分不足: {code} {name}'

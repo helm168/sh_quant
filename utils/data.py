@@ -15,7 +15,8 @@ import tushare as ts
 from dotenv import load_dotenv
 
 from config import DATA_DIR, ROOT_DIR, STUDY_RANGE_END, STUDY_RANGE_START
-from .themes import get_theme, get_codes
+
+from .themes import get_codes
 
 STOCKS_DIR = DATA_DIR / 'stocks'
 
@@ -111,23 +112,24 @@ def get_theme_index_by(
 ) -> pd.DataFrame:
     ts_codes = get_codes(theme_id, subtrack=substack)
 
-    df_price = pd.DataFrame({
-        'trade_date': pd.date_range(start, end),
-    })
-    df_price = df_price.set_index('trade_date')
+    df_price = pd.DataFrame()
 
     for ts_code in ts_codes:
         df = load_daily(ts_code, start, end, adj='qfq')
+        if df.empty:
+            continue
         df = df.set_index('trade_date').sort_index()
         df_price[ts_code] = df['close']
 
-    returns = df_price.pct_change().dropna()
+    returns = df_price.pct_change()
     index_ret = returns.mean(axis=1)
-    theme_index = 1000 * (1 + index_ret).cumprod()
+    theme_index = (1 + index_ret).cumprod()
 
-    return pd.DataFrame({
-        'theme_index': theme_index,
-        'index_ret': index_ret,
-    })
-    
+    return pd.DataFrame(
+        {
+            'theme_index': theme_index,
+            'index_ret': index_ret,
+        }
+    )
+
     raise NotImplementedError

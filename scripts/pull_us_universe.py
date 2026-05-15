@@ -40,6 +40,7 @@ FMP_API_KEY（.env 里，付费档 US 全套已经验证过）
     # update_daily 会自动 union 所有 universe/*.parquet 的 ts_code，
     # 包括刚生成的 us.parquet，一次性拉所有股票 OHLC
 """
+
 from __future__ import annotations
 
 import argparse
@@ -152,23 +153,24 @@ def main() -> None:
     ap = argparse.ArgumentParser(
         description='生成美股标的池（FMP screener）',
     )
-    ap.add_argument('--min-mv', type=float, default=10.0,
-                    help='最低市值（亿美元，默认 10 = $1B）')
-    ap.add_argument('--exchanges', default='NYSE,NASDAQ,AMEX',
-                    help='交易所，逗号分隔（默认 NYSE/NASDAQ/AMEX）')
-    ap.add_argument('--include-etf', action='store_true',
-                    help='包含 ETF（默认排除）')
-    ap.add_argument('--include-fund', action='store_true',
-                    help='包含 Fund（默认排除）')
-    ap.add_argument('--include-adr', action='store_true',
-                    help='包含 ADR（默认……暂时也保留，靠用户过滤）')
+    ap.add_argument('--min-mv', type=float, default=10.0, help='最低市值（亿美元，默认 10 = $1B）')
+    ap.add_argument(
+        '--exchanges', default='NYSE,NASDAQ,AMEX', help='交易所，逗号分隔（默认 NYSE/NASDAQ/AMEX）'
+    )
+    ap.add_argument('--include-etf', action='store_true', help='包含 ETF（默认排除）')
+    ap.add_argument('--include-fund', action='store_true', help='包含 Fund（默认排除）')
+    ap.add_argument(
+        '--include-adr', action='store_true', help='包含 ADR（默认……暂时也保留，靠用户过滤）'
+    )
     ap.add_argument('--out', default=str(OUT_FILE), help='输出 parquet 路径')
     args = ap.parse_args()
 
     key = load_key()
 
-    print(f'拉 FMP company-screener (US, marketCap > '
-          f'${args.min_mv} 亿美元 = ${args.min_mv / 10:.1f}B)...')
+    print(
+        f'拉 FMP company-screener (US, marketCap > '
+        f'${args.min_mv} 亿美元 = ${args.min_mv / 10:.1f}B)...'
+    )
     print(f'  交易所: {args.exchanges}')
     print()
 
@@ -187,12 +189,28 @@ def main() -> None:
     df['snapshot_date'] = pd.Timestamp.today().normalize()
 
     # 保留有用列
-    keep_cols = [c for c in [
-        'ts_code', 'symbol', 'name', 'exchange', 'sector', 'industry',
-        'country', 'market_cap', 'beta', 'price', 'volume',
-        'is_actively_trading', 'is_etf', 'is_fund', 'is_adr',
-        'snapshot_date',
-    ] if c in df.columns]
+    keep_cols = [
+        c
+        for c in [
+            'ts_code',
+            'symbol',
+            'name',
+            'exchange',
+            'sector',
+            'industry',
+            'country',
+            'market_cap',
+            'beta',
+            'price',
+            'volume',
+            'is_actively_trading',
+            'is_etf',
+            'is_fund',
+            'is_adr',
+            'snapshot_date',
+        ]
+        if c in df.columns
+    ]
     out = df[keep_cols].copy()
 
     # 写出
@@ -211,13 +229,15 @@ def main() -> None:
         print('\n 按 sector (Top 10):')
         print(out['sector'].value_counts().head(10).to_string())
     if 'market_cap' in out.columns:
-        print(f'\n 市值范围: ${out["market_cap"].min():.1f} 亿 → '
-              f'${out["market_cap"].max() / 100:.1f} 万亿')
+        print(
+            f'\n 市值范围: ${out["market_cap"].min():.1f} 亿 → '
+            f'${out["market_cap"].max() / 100:.1f} 万亿'
+        )
         print(f' 中位市值: ${out["market_cap"].median():.1f} 亿')
 
-    print(f'\n下一步拉物理日线:')
-    print(f'  python scripts/update_daily.py --workers 10')
-    print(f'  （自动 union us.parquet + cn_a.parquet 一起拉）')
+    print('\n下一步拉物理日线:')
+    print('  python scripts/update_daily.py --workers 10')
+    print('  （自动 union us.parquet + cn_a.parquet 一起拉）')
 
 
 if __name__ == '__main__':

@@ -57,6 +57,7 @@ Cron 推荐（A 股收盘后 1 小时，美股收盘后 1 小时）:
     # 美股次日 6:00（北京时间）跑
     0 6 * * 2-6 cd ~/Documents/Code/sh_quant && .venv/bin/python scripts/update_daily.py --market us
 """
+
 from __future__ import annotations
 
 import argparse
@@ -74,7 +75,9 @@ DEFAULT_CACHE_DIR = PROJECT_ROOT / 'data_cache' / 'stocks'
 
 # ---------- ts_code 后缀解析 ----------
 SUFFIX_TO_MARKET = {
-    '.SH': 'cn_a', '.SZ': 'cn_a', '.BJ': 'cn_a',
+    '.SH': 'cn_a',
+    '.SZ': 'cn_a',
+    '.BJ': 'cn_a',
     '.HK': 'cn_hk',
     '.US': 'us',
     '.SI': 'cn_index',  # 申万指数，updater 不处理
@@ -134,8 +137,10 @@ def _fetch_a_share_via_efinance(ts_code: str, start: str, end: str) -> pd.DataFr
     try:
         import efinance as ef
     except ImportError:
-        _warn_once('efinance 未安装（仅作 Tushare 失败时的兜底，不影响主流程）。'
-                   '想启用 efinance 兜底：pip install efinance')
+        _warn_once(
+            'efinance 未安装（仅作 Tushare 失败时的兜底，不影响主流程）。'
+            '想启用 efinance 兜底：pip install efinance'
+        )
         return None
 
     # efinance 不要 .SH/.SZ 后缀，只要 6 位代码
@@ -149,21 +154,39 @@ def _fetch_a_share_via_efinance(ts_code: str, start: str, end: str) -> pd.DataFr
     if df is None or len(df) == 0:
         return None
     # 标准化列名 → sh_quant schema
-    df = df.rename(columns={
-        '日期': 'trade_date',
-        '开盘': 'open', '收盘': 'close',
-        '最高': 'high', '最低': 'low',
-        '成交量': 'vol', '成交额': 'amount',
-        '涨跌幅': 'pct_chg', '涨跌额': 'change',
-    })
+    df = df.rename(
+        columns={
+            '日期': 'trade_date',
+            '开盘': 'open',
+            '收盘': 'close',
+            '最高': 'high',
+            '最低': 'low',
+            '成交量': 'vol',
+            '成交额': 'amount',
+            '涨跌幅': 'pct_chg',
+            '涨跌额': 'change',
+        }
+    )
     df['trade_date'] = pd.to_datetime(df['trade_date'])
     df['ts_code'] = ts_code
     df['pre_close'] = df['close'].shift(1)
     # efinance 不直接给 adj_factor，先填 1.0；后续 Tushare 跑批时回填
     df['adj_factor'] = 1.0
 
-    cols = ['trade_date', 'ts_code', 'open', 'high', 'low', 'close', 'pre_close',
-            'change', 'pct_chg', 'vol', 'amount', 'adj_factor']
+    cols = [
+        'trade_date',
+        'ts_code',
+        'open',
+        'high',
+        'low',
+        'close',
+        'pre_close',
+        'change',
+        'pct_chg',
+        'vol',
+        'amount',
+        'adj_factor',
+    ]
     return df[[c for c in cols if c in df.columns]]
 
 
@@ -224,8 +247,7 @@ def _prefetch_tushare_batch(today: pd.Timestamp) -> int:
         print('  [batch] 找不到最近交易日, 降级到 per-ticker', flush=True)
         return 0
 
-    print(f'  [batch] 预拉 trade_date={td_str} 全市场 daily + adj_factor',
-          flush=True)
+    print(f'  [batch] 预拉 trade_date={td_str} 全市场 daily + adj_factor', flush=True)
     t_call = time.time()
     try:
         daily = pro.daily(trade_date=td_str)
@@ -234,23 +256,21 @@ def _prefetch_tushare_batch(today: pd.Timestamp) -> int:
         return 0
     if daily is None or daily.empty:
         return 0
-    print(f'  [batch] daily: {len(daily)} 行, {time.time() - t_call:.1f}s',
-          flush=True)
+    print(f'  [batch] daily: {len(daily)} 行, {time.time() - t_call:.1f}s', flush=True)
 
     t_call = time.time()
     try:
         adj = pro.adj_factor(trade_date=td_str)
     except Exception as e:
-        print(f'  [batch] adj_factor(trade_date={td_str}) 失败 ({e}), '
-              f'用 1.0 兜底', flush=True)
+        print(f'  [batch] adj_factor(trade_date={td_str}) 失败 ({e}), 用 1.0 兜底', flush=True)
         adj = None
 
     if adj is not None and not adj.empty:
         adj = adj[['ts_code', 'trade_date', 'adj_factor']].drop_duplicates(
-            ['ts_code', 'trade_date'])
+            ['ts_code', 'trade_date']
+        )
         merged = daily.merge(adj, on=['ts_code', 'trade_date'], how='left')
-        print(f'  [batch] adj_factor: {len(adj)} 行, '
-              f'{time.time() - t_call:.1f}s', flush=True)
+        print(f'  [batch] adj_factor: {len(adj)} 行, {time.time() - t_call:.1f}s', flush=True)
     else:
         merged = daily.copy()
         merged['adj_factor'] = 1.0
@@ -260,8 +280,7 @@ def _prefetch_tushare_batch(today: pd.Timestamp) -> int:
 
     by_code: dict[str, pd.DataFrame] = {}
     for code, sub in merged.groupby('ts_code'):
-        by_code[str(code)] = (sub.sort_values('trade_date')
-                                 .reset_index(drop=True))
+        by_code[str(code)] = sub.sort_values('trade_date').reset_index(drop=True)
 
     _BATCH_CACHE = by_code
     td_ts = pd.to_datetime(td_str, format='%Y%m%d')
@@ -296,8 +315,7 @@ def _fetch_a_share_via_tushare(ts_code: str, start: str, end: str) -> pd.DataFra
             if start_dt >= _BATCH_MIN_DATE and end_dt <= _BATCH_MAX_DATE:
                 cached = _BATCH_CACHE.get(ts_code)
                 if cached is not None and not cached.empty:
-                    mask = ((cached['trade_date'] >= start_dt)
-                            & (cached['trade_date'] <= end_dt))
+                    mask = (cached['trade_date'] >= start_dt) & (cached['trade_date'] <= end_dt)
                     sliced = cached.loc[mask].copy()
                     if not sliced.empty:
                         _BATCH_HIT_COUNT += 1
@@ -352,8 +370,7 @@ def _fetch_us_via_fmp(ts_code: str, start: str, end: str) -> pd.DataFrame | None
     api_key = os.getenv('FMP_API_KEY')
     if not api_key:
         _warn_once(
-            'FMP_API_KEY 未配置！美股 OHLC 主源不可用。'
-            '请把 key 填到 sh_quant/.env 的 FMP_API_KEY=',
+            'FMP_API_KEY 未配置！美股 OHLC 主源不可用。请把 key 填到 sh_quant/.env 的 FMP_API_KEY=',
             key='fmp_key_missing',
         )
         return None
@@ -364,8 +381,10 @@ def _fetch_us_via_fmp(ts_code: str, start: str, end: str) -> pd.DataFrame | None
 
     code = ts_code[:-3] if ts_code.endswith('.US') else ts_code
     # /stable/historical-price-eod/full —— 2024+ FMP 标准接口
-    url = (f'https://financialmodelingprep.com/stable/historical-price-eod/full'
-           f'?symbol={code}&from={start}&to={end}&apikey={api_key}')
+    url = (
+        f'https://financialmodelingprep.com/stable/historical-price-eod/full'
+        f'?symbol={code}&from={start}&to={end}&apikey={api_key}'
+    )
     try:
         r = requests.get(url, timeout=30)
     except requests.exceptions.RequestException as e:
@@ -389,18 +408,20 @@ def _fetch_us_via_fmp(ts_code: str, start: str, end: str) -> pd.DataFrame | None
         close = d.get('close', 0)
         vol = d.get('volume', 0)
         adj_close = d.get('adjClose')
-        rows.append({
-            'trade_date': pd.to_datetime(d.get('date')),
-            'ts_code': ts_code,
-            'open': d.get('open'),
-            'high': d.get('high'),
-            'low': d.get('low'),
-            'close': close,
-            'vol': vol,
-            'amount': close * vol if close and vol else 0,
-            # FMP 给 adjClose，反推 adj_factor = adjClose / close
-            'adj_factor': adj_close / close if close and adj_close else 1.0,
-        })
+        rows.append(
+            {
+                'trade_date': pd.to_datetime(d.get('date')),
+                'ts_code': ts_code,
+                'open': d.get('open'),
+                'high': d.get('high'),
+                'low': d.get('low'),
+                'close': close,
+                'vol': vol,
+                'amount': close * vol if close and vol else 0,
+                # FMP 给 adjClose，反推 adj_factor = adjClose / close
+                'adj_factor': adj_close / close if close and adj_close else 1.0,
+            }
+        )
     df = pd.DataFrame(rows).sort_values('trade_date').reset_index(drop=True)
     df['pre_close'] = df['close'].shift(1)
     df['change'] = df['close'] - df['pre_close']
@@ -414,8 +435,7 @@ def _fetch_us_via_yfinance(ts_code: str, start: str, end: str) -> pd.DataFrame |
         import yfinance as yf
     except ImportError:
         _warn_once(
-            'yfinance 未安装（Polygon/FMP 都失败时才会用到），'
-            '可选安装：pip install yfinance',
+            'yfinance 未安装（Polygon/FMP 都失败时才会用到），可选安装：pip install yfinance',
             key='yfinance_missing',
         )
         return None
@@ -432,10 +452,16 @@ def _fetch_us_via_yfinance(ts_code: str, start: str, end: str) -> pd.DataFrame |
         df.index = df.index.tz_localize(None)
 
     df = df.reset_index()
-    df = df.rename(columns={
-        'Date': 'trade_date', 'Open': 'open', 'High': 'high',
-        'Low': 'low', 'Close': 'close', 'Volume': 'vol',
-    })
+    df = df.rename(
+        columns={
+            'Date': 'trade_date',
+            'Open': 'open',
+            'High': 'high',
+            'Low': 'low',
+            'Close': 'close',
+            'Volume': 'vol',
+        }
+    )
 
     df['ts_code'] = ts_code
     df['pre_close'] = df['close'].shift(1)
@@ -450,8 +476,20 @@ def _fetch_us_via_yfinance(ts_code: str, start: str, end: str) -> pd.DataFrame |
     else:
         df['adj_factor'] = 1.0
 
-    cols = ['trade_date', 'ts_code', 'open', 'high', 'low', 'close', 'pre_close',
-            'change', 'pct_chg', 'vol', 'amount', 'adj_factor']
+    cols = [
+        'trade_date',
+        'ts_code',
+        'open',
+        'high',
+        'low',
+        'close',
+        'pre_close',
+        'change',
+        'pct_chg',
+        'vol',
+        'amount',
+        'adj_factor',
+    ]
     return df[cols]
 
 
@@ -473,8 +511,10 @@ def _fetch_us_via_polygon(ts_code: str, start: str, end: str) -> pd.DataFrame | 
     code = ts_code[:-3] if ts_code.endswith('.US') else ts_code
     # Polygon 用 . 分隔多类股票（BRK.B），雅虎/FMP 用 -（BRK-B）。统一转一下
     polygon_code = code.replace('-', '.')
-    url = (f'https://api.polygon.io/v2/aggs/ticker/{polygon_code}/range/1/day/'
-           f'{start}/{end}?adjusted=false&sort=asc&limit=5000&apiKey={api_key}')
+    url = (
+        f'https://api.polygon.io/v2/aggs/ticker/{polygon_code}/range/1/day/'
+        f'{start}/{end}?adjusted=false&sort=asc&limit=5000&apiKey={api_key}'
+    )
     r = requests.get(url, timeout=15)
     if r.status_code != 200:
         return None
@@ -484,13 +524,19 @@ def _fetch_us_via_polygon(ts_code: str, start: str, end: str) -> pd.DataFrame | 
 
     rows = []
     for d in data:
-        rows.append({
-            'trade_date': datetime.fromtimestamp(d['t'] / 1000),
-            'ts_code': ts_code,
-            'open': d['o'], 'high': d['h'], 'low': d['l'], 'close': d['c'],
-            'vol': d['v'], 'amount': d.get('vw', d['c']) * d['v'],
-            'adj_factor': 1.0,  # Polygon 不直接给，单独接口
-        })
+        rows.append(
+            {
+                'trade_date': datetime.fromtimestamp(d['t'] / 1000),
+                'ts_code': ts_code,
+                'open': d['o'],
+                'high': d['h'],
+                'low': d['l'],
+                'close': d['c'],
+                'vol': d['v'],
+                'amount': d.get('vw', d['c']) * d['v'],
+                'adj_factor': 1.0,  # Polygon 不直接给，单独接口
+            }
+        )
     df = pd.DataFrame(rows)
     df['pre_close'] = df['close'].shift(1)
     df['change'] = df['close'] - df['pre_close']
@@ -499,6 +545,7 @@ def _fetch_us_via_polygon(ts_code: str, start: str, end: str) -> pd.DataFrame | 
 
 
 # ---------- 路由 ----------
+
 
 def fetch_one(ts_code: str, start: str, end: str) -> tuple[pd.DataFrame | None, str]:
     """
@@ -542,6 +589,7 @@ def fetch_one(ts_code: str, start: str, end: str) -> tuple[pd.DataFrame | None, 
 
 # ---------- 单只 ticker 增量更新 ----------
 
+
 def _last_trading_day_approx(today: pd.Timestamp) -> pd.Timestamp:
     """粗略算"最近一个**已经收盘**的交易日"，考虑周末 + 当日是否过了收盘时间。
 
@@ -561,17 +609,12 @@ def _last_trading_day_approx(today: pd.Timestamp) -> pd.Timestamp:
     """
     today = today.normalize()
     wd = today.weekday()  # Monday=0
-    if wd == 5:        # Saturday
+    if wd == 5:  # Saturday
         return today - pd.Timedelta(days=1)
-    if wd == 6:        # Sunday
+    if wd == 6:  # Sunday
         return today - pd.Timedelta(days=2)
-    # 工作日: 看时间. pd.Timestamp.now() 拿带时间的当前时刻
-    now = pd.Timestamp.now().normalize() + pd.Timedelta(
-        hours=pd.Timestamp.now().hour,
-        minutes=pd.Timestamp.now().minute,
-    )
-    after_close = (pd.Timestamp.now().hour >= 17)
-    if wd == 0:        # Monday
+    after_close = pd.Timestamp.now().hour >= 17
+    if wd == 0:  # Monday
         return today if after_close else today - pd.Timedelta(days=3)
     # Tuesday-Friday
     return today if after_close else today - pd.Timedelta(days=1)
@@ -586,6 +629,7 @@ def _peek_last_date_fast(fp: Path) -> pd.Timestamp | None:
     """
     try:
         import pyarrow.parquet as pq
+
         pf = pq.ParquetFile(fp)
         schema = pf.schema_arrow
         if 'trade_date' not in schema.names:
@@ -629,8 +673,10 @@ def update_one(ts_code: str, lookback_days: int, cache_dir: Path, force: bool) -
         peek_last = _peek_last_date_fast(fp)
         if peek_last is not None and peek_last >= last_td:
             return {
-                'ticker': ts_code, 'status': 'fresh',
-                'vendor': '-', 'new_rows': 0,
+                'ticker': ts_code,
+                'status': 'fresh',
+                'vendor': '-',
+                'new_rows': 0,
                 'total_rows': -1,  # 没读 data 不知道行数，省 IO
                 'latest': peek_last.strftime('%Y-%m-%d'),
             }
@@ -641,17 +687,20 @@ def update_one(ts_code: str, lookback_days: int, cache_dir: Path, force: bool) -
     #             (e.g. 000003.SZ PT 金田 A 2002 年就退了)
     # 这两种都跳过 slow path 减无谓 API call.
     # 真正长期停牌的股票, 复牌当天会进 batch → 这里不会误判.
-    if (not force
-            and _BATCH_MIN_DATE is not None
-            and parse_market(ts_code) == 'cn_a'
-            and ts_code not in _BATCH_CACHE
-            and (peek_last is None
-                 or peek_last < today - pd.Timedelta(days=90))):
+    if (
+        not force
+        and _BATCH_MIN_DATE is not None
+        and parse_market(ts_code) == 'cn_a'
+        and ts_code not in _BATCH_CACHE
+        and (peek_last is None or peek_last < today - pd.Timedelta(days=90))
+    ):
         return {
-            'ticker': ts_code, 'status': 'delisted',
-            'vendor': '-', 'new_rows': 0, 'total_rows': -1,
-            'latest': (peek_last.strftime('%Y-%m-%d')
-                       if peek_last is not None else '-'),
+            'ticker': ts_code,
+            'status': 'delisted',
+            'vendor': '-',
+            'new_rows': 0,
+            'total_rows': -1,
+            'latest': (peek_last.strftime('%Y-%m-%d') if peek_last is not None else '-'),
         }
 
     # 走到这里说明要 fetch — 现在才读完整 parquet
@@ -676,20 +725,22 @@ def update_one(ts_code: str, lookback_days: int, cache_dir: Path, force: bool) -
     df_new, vendor = fetch_one(ts_code, start, end)
     if df_new is None or len(df_new) == 0:
         return {
-            'ticker': ts_code, 'status': 'empty',
-            'vendor': vendor, 'new_rows': 0, 'total_rows': 0,
+            'ticker': ts_code,
+            'status': 'empty',
+            'vendor': vendor,
+            'new_rows': 0,
+            'total_rows': 0,
             'error': f'no data from any vendor (lookback={lookback_days}d)',
         }
 
     # 合并去重
-    if old is not None:
-        merged = pd.concat([old, df_new], ignore_index=True)
-    else:
-        merged = df_new
+    merged = pd.concat([old, df_new], ignore_index=True) if old is not None else df_new
 
-    merged = (merged.drop_duplicates(subset='trade_date', keep='last')
-                    .sort_values('trade_date')
-                    .reset_index(drop=True))
+    merged = (
+        merged.drop_duplicates(subset='trade_date', keep='last')
+        .sort_values('trade_date')
+        .reset_index(drop=True)
+    )
     after = len(merged)
     new_rows = after - (len(old) if old is not None else 0)
 
@@ -697,7 +748,8 @@ def update_one(ts_code: str, lookback_days: int, cache_dir: Path, force: bool) -
     # 注意：7 天 overlap 可能让源头静默修正老值，必须比较值而非只看行数。
     if old is not None and not _data_changed(merged, old):
         return {
-            'ticker': ts_code, 'status': 'unchanged',
+            'ticker': ts_code,
+            'status': 'unchanged',
             'vendor': vendor,
             'new_rows': 0,
             'total_rows': after,
@@ -709,7 +761,8 @@ def update_one(ts_code: str, lookback_days: int, cache_dir: Path, force: bool) -
     merged.to_parquet(fp, index=False, compression='snappy')
 
     return {
-        'ticker': ts_code, 'status': 'ok',
+        'ticker': ts_code,
+        'status': 'ok',
         'vendor': vendor,
         'new_rows': new_rows,
         'total_rows': after,
@@ -725,14 +778,17 @@ def _data_changed(merged: pd.DataFrame, old: pd.DataFrame) -> bool:
     """merged 相对 old 有变化（行数不同 / 关键列值不同）就返回 True。"""
     if len(merged) != len(old):
         return True
-    old_sorted = (old.drop_duplicates(subset='trade_date', keep='last')
-                     .sort_values('trade_date')
-                     .reset_index(drop=True))
+    old_sorted = (
+        old.drop_duplicates(subset='trade_date', keep='last')
+        .sort_values('trade_date')
+        .reset_index(drop=True)
+    )
     cols = [c for c in _COMPARE_COLS if c in merged.columns and c in old_sorted.columns]
     if not cols:
         # 没有可比较的数值列，保守起见认为变了
         return True
     import numpy as np
+
     a = merged[cols].to_numpy(dtype=float)
     b = old_sorted[cols].to_numpy(dtype=float)
     # 用 isclose 处理浮点舍入差异
@@ -740,6 +796,7 @@ def _data_changed(merged: pd.DataFrame, old: pd.DataFrame) -> bool:
 
 
 # ---------- 批量入口 ----------
+
 
 def collect_tickers(args, cache_dir: Path) -> list[str]:
     """决定要更新哪些 ticker。
@@ -752,9 +809,8 @@ def collect_tickers(args, cache_dir: Path) -> list[str]:
     if args.tickers:
         tickers = [t.strip() for t in args.tickers.split(',') if t.strip()]
     elif args.file:
-        with open(args.file, 'r', encoding='utf-8') as f:
-            tickers = [line.strip() for line in f
-                       if line.strip() and not line.startswith('#')]
+        with open(args.file, encoding='utf-8') as f:
+            tickers = [line.strip() for line in f if line.strip() and not line.startswith('#')]
     else:
         # 默认：union(所有 universe/*.parquet 的 ts_code, stocks/ 已缓存)
         ts_set: set[str] = set()
@@ -774,12 +830,10 @@ def collect_tickers(args, cache_dir: Path) -> list[str]:
 
         # 再合并已缓存但 universe 没收录的（如 --tickers 临时拉的美股）
         if cache_dir.exists():
-            cached = {fp.stem for fp in cache_dir.glob('*.parquet')
-                      if not fp.stem.startswith('_')}
+            cached = {fp.stem for fp in cache_dir.glob('*.parquet') if not fp.stem.startswith('_')}
             ad_hoc = cached - ts_set
             if ad_hoc:
-                print(f'  + 已缓存但不在 universe: {len(ad_hoc)} 只 '
-                      f'(可能是 --tickers 临时拉过的)')
+                print(f'  + 已缓存但不在 universe: {len(ad_hoc)} 只 (可能是 --tickers 临时拉过的)')
             ts_set.update(cached)
 
         if not ts_set:
@@ -794,15 +848,15 @@ def collect_tickers(args, cache_dir: Path) -> list[str]:
     # market 过滤
     if args.market:
         markets = set(args.market.split(','))
+
         def keep(t: str) -> bool:
             m = parse_market(t)
             if 'cn' in markets and m == 'cn_a':
                 return True
             if 'us' in markets and m == 'us':
                 return True
-            if 'hk' in markets and m == 'cn_hk':
-                return True
-            return False
+            return bool('hk' in markets and m == 'cn_hk')
+
         tickers = [t for t in tickers if keep(t)]
 
     return tickers
@@ -813,32 +867,51 @@ def main() -> int:
     # TUSHARE_TOKEN，不依赖某个 fetcher 顺手加载
     try:
         from dotenv import load_dotenv
+
         load_dotenv(PROJECT_ROOT / '.env')
     except ImportError:
         pass  # 没装 python-dotenv 也不阻塞，os.getenv 仍能读 shell export 的变量
 
     ap = argparse.ArgumentParser(
-        description=('A 股 + 美股 日线增量更新器。'
-                     '不传 --tickers/--file 时，自动用 universe + 缓存的并集'),
+        description=(
+            'A 股 + 美股 日线增量更新器。不传 --tickers/--file 时，自动用 universe + 缓存的并集'
+        ),
     )
     src = ap.add_mutually_exclusive_group(required=False)
     src.add_argument('--tickers', help='逗号分隔的 ts_code 列表，如 600519.SH,NVDA.US')
     src.add_argument('--file', help='ticker 列表文件，每行一个')
     ap.add_argument('--market', help='只更新特定市场 (cn/us/hk)，逗号分隔')
-    ap.add_argument('--lookback', type=int, default=1,
-                    help=('拉最近 N 个交易日 (默认 1 只拉今天; --lookback 7 '
-                          '拉最近 7 天用于 catch-up). lookback=1 走 fast-path, '
-                          'lookback>1 自动走 per-ticker slow path'))
-    ap.add_argument('--verify', type=int, default=0, metavar='N',
-                    help=('源头校验模式: 跳过 batch fast-path, per-ticker '
-                          '重拉最近 N 天用于检测 Tushare 数据回填. 0 = 不校验 '
-                          '(默认). 周末手动跑 --verify 7 做一次源头对账'))
+    ap.add_argument(
+        '--lookback',
+        type=int,
+        default=1,
+        help=(
+            '拉最近 N 个交易日 (默认 1 只拉今天; --lookback 7 '
+            '拉最近 7 天用于 catch-up). lookback=1 走 fast-path, '
+            'lookback>1 自动走 per-ticker slow path'
+        ),
+    )
+    ap.add_argument(
+        '--verify',
+        type=int,
+        default=0,
+        metavar='N',
+        help=(
+            '源头校验模式: 跳过 batch fast-path, per-ticker '
+            '重拉最近 N 天用于检测 Tushare 数据回填. 0 = 不校验 '
+            '(默认). 周末手动跑 --verify 7 做一次源头对账'
+        ),
+    )
     ap.add_argument('--workers', type=int, default=5, help='并发线程数')
     ap.add_argument('--force', action='store_true', help='强制全量重拉（破缓存）')
-    ap.add_argument('--cache-dir', default=str(DEFAULT_CACHE_DIR),
-                    help='数据目录（默认 sh_quant/data_cache/stocks/）')
-    ap.add_argument('--verbose', action='store_true',
-                    help='打印所有 ticker 状态（默认跳过 fresh 的刷屏行）')
+    ap.add_argument(
+        '--cache-dir',
+        default=str(DEFAULT_CACHE_DIR),
+        help='数据目录（默认 sh_quant/data_cache/stocks/）',
+    )
+    ap.add_argument(
+        '--verbose', action='store_true', help='打印所有 ticker 状态（默认跳过 fresh 的刷屏行）'
+    )
     args = ap.parse_args()
 
     cache_dir = Path(args.cache_dir).expanduser()
@@ -849,8 +922,10 @@ def main() -> int:
         return 2
 
     print(f'更新 {len(tickers)} 只 ticker → {cache_dir}')
-    print(f'回退 {args.lookback} 天, 并发 {args.workers}, '
-          f'market={args.market or "all"}, force={args.force}')
+    print(
+        f'回退 {args.lookback} 天, 并发 {args.workers}, '
+        f'market={args.market or "all"}, force={args.force}'
+    )
     print('-' * 70)
 
     # --verify N: 强制 per-ticker, lookback 改成 N 天用于源头校验
@@ -881,29 +956,34 @@ def main() -> int:
             if peek is None or peek < last_td_pre:
                 n_stale += 1
         if n_stale == 0:
-            print(f'  [batch] 所有 {cn_count} 只 CN ticker 已 fresh '
-                  f'(last_td={last_td_pre.strftime("%Y-%m-%d")}), 跳过 batch')
+            print(
+                f'  [batch] 所有 {cn_count} 只 CN ticker 已 fresh '
+                f'(last_td={last_td_pre.strftime("%Y-%m-%d")}), 跳过 batch'
+            )
             print('-' * 70)
         else:
-            print(f'  [batch] {n_stale}/{cn_count} CN ticker 待更新, '
-                  f'启动 batch 预拉')
+            print(f'  [batch] {n_stale}/{cn_count} CN ticker 待更新, 启动 batch 预拉')
             t_pre = time.time()
             n_cached = _prefetch_tushare_batch(today_norm)
             if n_cached:
-                print(f'  [batch] Tushare 预拉 {n_cached} 只 A 股 @ '
-                      f'{_BATCH_MIN_DATE.strftime("%Y-%m-%d")}, '
-                      f'用时 {time.time() - t_pre:.1f}s')
+                print(
+                    f'  [batch] Tushare 预拉 {n_cached} 只 A 股 @ '
+                    f'{_BATCH_MIN_DATE.strftime("%Y-%m-%d")}, '
+                    f'用时 {time.time() - t_pre:.1f}s'
+                )
             else:
-                print('  [batch] Tushare 预拉未启用 '
-                      '(无 token / API 失败), 走原 per-ticker 路径')
+                print('  [batch] Tushare 预拉未启用 (无 token / API 失败), 走原 per-ticker 路径')
             print('-' * 70)
     elif args.verify:
-        print(f'  [batch] --verify {args.verify}, 跳过 batch 走 per-ticker '
-              f'校验最近 {args.verify} 天')
+        print(
+            f'  [batch] --verify {args.verify}, 跳过 batch 走 per-ticker 校验最近 {args.verify} 天'
+        )
         print('-' * 70)
     elif cn_count and cn_count < BATCH_MIN_TICKERS:
-        print(f'  [batch] CN ticker {cn_count} < {BATCH_MIN_TICKERS}, '
-              '跳过 batch (小批次直接 per-ticker)')
+        print(
+            f'  [batch] CN ticker {cn_count} < {BATCH_MIN_TICKERS}, '
+            '跳过 batch (小批次直接 per-ticker)'
+        )
         print('-' * 70)
 
     t0 = time.time()
@@ -911,8 +991,7 @@ def main() -> int:
     fresh_count = 0
     with ThreadPoolExecutor(max_workers=args.workers) as ex:
         futures = {
-            ex.submit(update_one, t, args.lookback, cache_dir, args.force): t
-            for t in tickers
+            ex.submit(update_one, t, args.lookback, cache_dir, args.force): t for t in tickers
         }
         width = len(str(len(tickers)))
         for i, fut in enumerate(as_completed(futures), 1):
@@ -920,8 +999,14 @@ def main() -> int:
             try:
                 r = fut.result()
             except Exception as e:
-                r = {'ticker': t, 'status': 'error', 'vendor': '?',
-                     'new_rows': 0, 'total_rows': 0, 'error': str(e)}
+                r = {
+                    'ticker': t,
+                    'status': 'error',
+                    'vendor': '?',
+                    'new_rows': 0,
+                    'total_rows': 0,
+                    'error': str(e),
+                }
             results.append(r)
 
             # fresh / delisted 是噪音, 默认不打印 (终端 I/O 是瓶颈)
@@ -929,30 +1014,35 @@ def main() -> int:
             if r['status'] == 'fresh':
                 fresh_count += 1
                 if not args.verbose and fresh_count % 500 == 0:
-                    print(f'  [{i:>{width}}/{len(tickers)}] '
-                          f'· (已跳过 {fresh_count} 个 fresh)')
+                    print(f'  [{i:>{width}}/{len(tickers)}] · (已跳过 {fresh_count} 个 fresh)')
                 if not args.verbose:
                     continue
             if r['status'] == 'delisted' and not args.verbose:
                 continue
 
-            status_tag = {'ok': '✓', 'unchanged': '=', 'fresh': '·',
-                          'empty': '○', 'error': '✗',
-                          'delisted': '☠'}.get(r['status'], '?')
+            status_tag = {
+                'ok': '✓',
+                'unchanged': '=',
+                'fresh': '·',
+                'empty': '○',
+                'error': '✗',
+                'delisted': '☠',
+            }.get(r['status'], '?')
             if r['status'] == 'ok':
-                extra = (f"  latest={r.get('latest', '-')}, +{r['new_rows']} new, "
-                         f"vendor={r['vendor']}")
+                extra = (
+                    f'  latest={r.get("latest", "-")}, +{r["new_rows"]} new, vendor={r["vendor"]}'
+                )
             elif r['status'] == 'unchanged':
-                extra = (f"  latest={r.get('latest', '-')}, no change "
-                         f"(skipped write)")
+                extra = f'  latest={r.get("latest", "-")}, no change (skipped write)'
             elif r['status'] == 'fresh':
-                extra = (f"  latest={r.get('latest', '-')}, fresh "
-                         f"(skipped fetch, metadata-only)")
+                extra = f'  latest={r.get("latest", "-")}, fresh (skipped fetch, metadata-only)'
             elif r['status'] == 'delisted':
-                extra = (f"  latest={r.get('latest', '-')}, 疑似退市 "
-                         f"(>90d 无新数据且不在 batch 里, skipped)")
+                extra = (
+                    f'  latest={r.get("latest", "-")}, 疑似退市 '
+                    f'(>90d 无新数据且不在 batch 里, skipped)'
+                )
             else:
-                extra = f"  ERR: {r.get('error', '?')}"
+                extra = f'  ERR: {r.get("error", "?")}'
             print(f'  [{i:>{width}}/{len(tickers)}] {status_tag} {t:<14}{extra}')
 
     elapsed = time.time() - t0
@@ -977,15 +1067,17 @@ def main() -> int:
     if _BATCH_HIT_COUNT or _BATCH_MISS_COUNT:
         total = _BATCH_HIT_COUNT + _BATCH_MISS_COUNT
         pct = 100 * _BATCH_HIT_COUNT // max(total, 1)
-        print(f'  [batch] Tushare cache hit: {_BATCH_HIT_COUNT}/{total} ({pct}%), '
-              f'miss (fall-through to per-ticker): {_BATCH_MISS_COUNT}')
+        print(
+            f'  [batch] Tushare cache hit: {_BATCH_HIT_COUNT}/{total} ({pct}%), '
+            f'miss (fall-through to per-ticker): {_BATCH_MISS_COUNT}'
+        )
 
     # 真正"失败/空"：只看 empty 和 error，不算 fresh/unchanged（它们是成功的）
     failed = [r for r in results if r['status'] in ('empty', 'error')]
     if failed:
         print(f'\n失败/空 {len(failed)} 只:')
         for r in failed[:20]:
-            print(f"  {r['ticker']}: {r['status']} - {r.get('error', '-')}")
+            print(f'  {r["ticker"]}: {r["status"]} - {r.get("error", "-")}')
         if len(failed) > 20:
             print(f'  ... 还有 {len(failed) - 20} 只')
 

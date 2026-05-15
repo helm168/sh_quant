@@ -59,6 +59,7 @@ TUSHARE_TOKEN（.env 里）
 
     后续每天 cron 同样跑 `python scripts/update_daily.py` 即可
 """
+
 from __future__ import annotations
 
 import argparse
@@ -110,10 +111,10 @@ def latest_trade_date_with_data(pro, max_lookback: int = 10) -> str:
     """
     today = pd.Timestamp.today().strftime('%Y%m%d')
     cal = safe_call(
-        pro, 'trade_cal',
+        pro,
+        'trade_cal',
         exchange='SSE',
-        start_date=(pd.Timestamp.today() - pd.Timedelta(days=max_lookback * 2))
-                   .strftime('%Y%m%d'),
+        start_date=(pd.Timestamp.today() - pd.Timedelta(days=max_lookback * 2)).strftime('%Y%m%d'),
         end_date=today,
         is_open='1',
     )
@@ -123,16 +124,15 @@ def latest_trade_date_with_data(pro, max_lookback: int = 10) -> str:
     trade_days = sorted(cal['cal_date'].tolist(), reverse=True)
     for i, date in enumerate(trade_days[:max_lookback]):
         # 探测：这一天 daily_basic 有数据吗？只拿 1 列省流量
-        snap = safe_call(pro, 'daily_basic', trade_date=date,
-                         fields='ts_code,total_mv')
+        snap = safe_call(pro, 'daily_basic', trade_date=date, fields='ts_code,total_mv')
         if snap is not None and not snap.empty and len(snap) > 100:
             if i > 0:
-                print(f'  注: 今日 ({today}) daily_basic 暂未发布，'
-                      f'回退使用 {date} 作为快照日')
+                print(f'  注: 今日 ({today}) daily_basic 暂未发布，回退使用 {date} 作为快照日')
             return date
 
-    sys.exit(f'回溯 {max_lookback} 个交易日都没找到 daily_basic 数据，'
-             '可能 Tushare 异常或权限不足。')
+    sys.exit(
+        f'回溯 {max_lookback} 个交易日都没找到 daily_basic 数据，可能 Tushare 异常或权限不足。'
+    )
 
 
 # 别名保留向后兼容
@@ -143,27 +143,31 @@ def fetch_universe(pro, trade_date: str) -> pd.DataFrame:
     """拿 A 股基础信息 + 当日市值快照，merge 后返回。"""
     # 1) 上市状态 L 的全 A 股（包含主板/创业/科创/北交所）
     basic = safe_call(
-        pro, 'stock_basic',
-        exchange='', list_status='L',
+        pro,
+        'stock_basic',
+        exchange='',
+        list_status='L',
         fields='ts_code,symbol,name,area,industry,market,exchange,list_date',
     )
     if basic is None or basic.empty:
         sys.exit('stock_basic 返回空。')
-    basic['list_date'] = pd.to_datetime(basic['list_date'], format='%Y%m%d',
-                                        errors='coerce')
+    basic['list_date'] = pd.to_datetime(basic['list_date'], format='%Y%m%d', errors='coerce')
 
     # 2) 当日所有股票的市值快照（一次调用拿全市场，比逐股调便宜得多）
     daily_basic = safe_call(
-        pro, 'daily_basic',
+        pro,
+        'daily_basic',
         trade_date=trade_date,
-        fields=('ts_code,total_mv,circ_mv,pe,pe_ttm,pb,ps,ps_ttm,'
-                'dv_ratio,dv_ttm,total_share,float_share,turnover_rate'),
+        fields=(
+            'ts_code,total_mv,circ_mv,pe,pe_ttm,pb,ps,ps_ttm,'
+            'dv_ratio,dv_ttm,total_share,float_share,turnover_rate'
+        ),
     )
     if daily_basic is None or daily_basic.empty:
         sys.exit(f'daily_basic({trade_date}) 返回空。换一个 --trade-date 试试？')
 
     # Tushare 的 total_mv 单位是万元，转成亿元（实操更直观）
-    daily_basic['total_mv'] = daily_basic['total_mv'] / 1e4   # 万元 → 亿元
+    daily_basic['total_mv'] = daily_basic['total_mv'] / 1e4  # 万元 → 亿元
     daily_basic['circ_mv'] = daily_basic['circ_mv'] / 1e4
 
     df = basic.merge(daily_basic, on='ts_code', how='inner')
@@ -175,12 +179,16 @@ def main() -> None:
     ap = argparse.ArgumentParser(
         description='生成 A 股标的池清单（单文件，含 ST/次新，消费侧自行过滤）',
     )
-    ap.add_argument('--min-mv', type=float, default=100.0,
-                    help='最低总市值（亿元，默认 100。实操底线，不建议低于此）')
-    ap.add_argument('--trade-date', default='',
-                    help='市值快照日 YYYYMMDD（默认最近有数据的交易日）')
-    ap.add_argument('--out', default=str(OUT_FILE),
-                    help='输出 parquet 路径')
+    ap.add_argument(
+        '--min-mv',
+        type=float,
+        default=100.0,
+        help='最低总市值（亿元，默认 100。实操底线，不建议低于此）',
+    )
+    ap.add_argument(
+        '--trade-date', default='', help='市值快照日 YYYYMMDD（默认最近有数据的交易日）'
+    )
+    ap.add_argument('--out', default=str(OUT_FILE), help='输出 parquet 路径')
     args = ap.parse_args()
 
     try:
@@ -193,10 +201,7 @@ def main() -> None:
     pro = ts.pro_api()
 
     # 1) 决定取数日
-    if args.trade_date:
-        trade_date = args.trade_date
-    else:
-        trade_date = latest_trade_date_with_data(pro)
+    trade_date = args.trade_date or latest_trade_date_with_data(pro)
     print(f'快照日: {trade_date}')
     print(f'底线: 市值 ≥ {args.min_mv} 亿（含 ST/次新，消费侧自行过滤）')
 
@@ -211,8 +216,7 @@ def main() -> None:
     n0 = len(df)
     print(f'\n  上市中: {n0} 只')
     filtered = df[df['total_mv'] >= args.min_mv].reset_index(drop=True)
-    print(f'  市值 ≥ {args.min_mv} 亿: {len(filtered)} 只 '
-          f'(剔除 {n0 - len(filtered)} 只)')
+    print(f'  市值 ≥ {args.min_mv} 亿: {len(filtered)} 只 (剔除 {n0 - len(filtered)} 只)')
 
     # 4) 写出
     out_path = Path(args.out)
@@ -229,8 +233,9 @@ def main() -> None:
     if 'market' in filtered.columns:
         print('\n 按板块:')
         print(filtered['market'].value_counts().to_string())
-    print(f'\n 总市值范围: {filtered["total_mv"].min():.0f} 亿 → '
-          f'{filtered["total_mv"].max():.0f} 亿')
+    print(
+        f'\n 总市值范围: {filtered["total_mv"].min():.0f} 亿 → {filtered["total_mv"].max():.0f} 亿'
+    )
     print(f' 中位市值: {filtered["total_mv"].median():.0f} 亿')
 
     # 6) ST / 次新 的统计（让用户知道有多少，消费侧可以过滤）
@@ -244,9 +249,9 @@ def main() -> None:
     print(f' 其中上市<60 天: {new_count} 只')
     print(' （消费侧按需过滤，参考 docstring 顶部的示例）')
 
-    print(f'\n下一步拉物理日线:')
-    print(f'  python scripts/update_daily.py --workers 10')
-    print(f'  （默认自动用 universe + 缓存的并集，不用传别的参数）')
+    print('\n下一步拉物理日线:')
+    print('  python scripts/update_daily.py --workers 10')
+    print('  （默认自动用 universe + 缓存的并集，不用传别的参数）')
 
 
 if __name__ == '__main__':

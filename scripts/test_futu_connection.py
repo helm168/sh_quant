@@ -28,10 +28,11 @@ from __future__ import annotations
 
 import sys
 import time
+from contextlib import suppress
 from datetime import datetime
 
 try:
-    from futu import OpenQuoteContext, RET_OK, KLType, AuType
+    from futu import RET_OK, AuType, KLType, OpenQuoteContext
 except ImportError:
     sys.exit('futu-api 没装。先 pip install futu-api')
 
@@ -67,9 +68,11 @@ def ping_once(ctx: OpenQuoteContext, i: int) -> tuple[bool, str]:
 
 
 def main() -> None:
-    print(f'=== FutuOpenD 连接稳定性测试 ===')
+    print('=== FutuOpenD 连接稳定性测试 ===')
     print(f'host={HOST}:{PORT}  symbol={TEST_SYMBOL}')
-    print(f'ping {PING_COUNT} 次，每次间隔 {PING_INTERVAL} 秒（总时长 {PING_COUNT * PING_INTERVAL // 60} 分钟）')
+    print(
+        f'ping {PING_COUNT} 次，每次间隔 {PING_INTERVAL} 秒（总时长 {PING_COUNT * PING_INTERVAL // 60} 分钟）'
+    )
     print('=' * 60)
 
     # 1) 建连
@@ -107,10 +110,8 @@ def main() -> None:
             if i < PING_COUNT:
                 time.sleep(PING_INTERVAL)
     finally:
-        try:
+        with suppress(Exception):
             ctx.close()
-        except Exception:
-            pass
 
     print('=' * 60)
     print(f'总计: 成功 {success_count}/{PING_COUNT}, 失败 {fail_count}')
