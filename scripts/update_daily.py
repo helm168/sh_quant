@@ -1,11 +1,15 @@
 """
-A 股 + 美股 日线增量更新器。
+A 股 + 美股 日线增量更新器 (统一日 cron 入口).
+
+跑完 OHLCV 后会**自动接着跑 daily_basic** (PE/PB/PS/总市值 估值快照), 用户只
+需一个 cron 命令搞定所有 daily 数据. 加 --skip-daily-basic 可只跑 OHLCV.
 
 设计原则:
   - 幂等：重复跑同一天结果一致（drop_duplicates(trade_date, keep='last')）
   - 鲁棒：每次拉最近 7 天而非 1 天，覆盖跨周末/节假日/源头回填
   - 多源 fallback：efinance/yfinance/polygon/Tushare 自动切
   - 多线程加速：默认 5 并发（efinance/yfinance 不限速，可放心并发）
+  - 单一 cron 入口: OHLCV + daily_basic 一起跑, daily_basic 失败不影响主退出码
 
 数据源选择策略
 ─────────────────
@@ -912,6 +916,14 @@ def main() -> int:
     ap.add_argument(
         '--verbose', action='store_true', help='打印所有 ticker 状态（默认跳过 fresh 的刷屏行）'
     )
+    ap.add_argument(
+        '--skip-daily-basic',
+        action='store_true',
+        help=(
+            '跳过 daily_basic (PE/PB/估值) 增量更新. 默认 OHLCV 跑完会自动接着跑 daily_basic, '
+            '日 cron 单脚本搞定. 加这个 flag 只跑 OHLCV.'
+        ),
+    )
     args = ap.parse_args()
 
     cache_dir = Path(args.cache_dir).expanduser()
@@ -1081,7 +1093,35 @@ def main() -> int:
         if len(failed) > 20:
             print(f'  ... 还有 {len(failed) - 20} 只')
 
+    # ─── daily_basic 增量 (OHLCV 跑完顺带把 PE/PB 也更了) ──────────
+    # 设计意图: 用户单一 cron 命令 `update_daily.py` 搞定所有 daily endpoint.
+    # 跳过条件: --skip-daily-basic 显式跳, 或 OHLCV 阶段**全失败** (失败=error
+    # 或 empty; fresh/unchanged/ok 都算成功, 因为本地已经有数据可以接着更 daily_basic).
+    # 共享: --tickers / --force / --workers / --verbose 直接透传; CN 之外的
+    # ticker (港股/美股) 在 update_all 里被过滤掉, 这边不用区分.
+    n_failed_ohlcv = sum(1 for r in results if r['status'] in ('error', 'empty'))
+    all_failed = n_failed_ohlcv == len(results) and len(results) > 0
+    db_stats = None
+    if args.skip_daily_basic:
+        print('  [daily_basic] 已 --skip-daily-basic, 跳过估值更新')
+    elif all_failed:
+        print(f'  [daily_basic] OHLCV {n_failed_ohlcv}/{len(results)} 全失败, 跳过 daily_basic 防止浪费 API')
+    else:
+        try:
+            from pull_daily_basic import update_all as _update_daily_basic
+            db_stats = _update_daily_basic(
+                tickers,
+                years=3,  # 首次全量拉 3 年, 已有数据走增量
+                workers=args.workers,
+                force=args.force,
+                verbose=args.verbose,
+                label='daily_basic (随 update_daily 跑)',
+            )
+        except Exception as e:
+            print(f'  [daily_basic] 调用失败: {e}')
+
     # 退出码: 0 全成功, 1 部分成功, 2 全失败
+    # daily_basic 错误不影响主退出码 (OHLCV 是主, 估值是辅), 但日志里能看到
     if ok == len(results):
         return 0
     if ok == 0:

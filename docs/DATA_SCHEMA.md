@@ -22,6 +22,12 @@
 │   ├── 00700.HK.parquet         # 港股，代码 5 位补零
 │   ├── 00981.HK.parquet
 │   └── NVDA.US.parquet          # 美股，字母代码 + .US
+├── daily_basic/                 # 每日估值快照 (PE/PB/PS/总市值/换手率)
+│   ├── 600519.SH.parquet        # A 股, Tushare pro.daily_basic
+│   └── 300750.SZ.parquet        # 跟 stocks/ 同 ts_code 一一对应
+├── financials/                  # 季度财务 (利润表+资产负债+现金流+财务指标)
+│   ├── 600519.SH.parquet        # A 股, Tushare pro.income/balance/cashflow/fina_indicator
+│   └── NVDA.US.parquet          # 美股, FMP income/balance/cashflow/key-metrics
 ├── etf/                         # 场内基金（ETF / LOF）日线
 │   ├── _etfs.parquet            # 元数据（管理人 / 上市日 / 状态）
 │   ├── 510300.SH.parquet
