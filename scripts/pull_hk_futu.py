@@ -13,11 +13,17 @@
 
 策略
 ────
-  Cold start (第一次跑): 拉 6M 历史 ≤ 200 根, 1 配额/股.
-    HK 全集 ~2700 支, 1000 配额一天拉不完 → 限 --max-tickers 800 (留 200 buffer
-    给重试 + universe-info), 默认按主板 + ADV 排序拉前 800 高液态股.
+  Cold start (--backfill, 推荐): 滚动回填全集. 按市值降序遍历 HK 全 universe
+    (~2700 支), **跳过已落盘的票** (parquet 已存在且非空, 0 配额), 对缺失的票
+    cold-pull 6M ≤ 200 根 (1 配额/股), 配额预算 (--max-tickers, 默认 800) 用完
+    即停. 因为已落盘的会被跳过, 次日再跑 --backfill 自动从断点 (市值序下一只
+    未覆盖的) 继续, 几天滚完全集. 失败的票没落盘, 下轮自动重试.
+  Cold start (legacy, 无 --backfill): 按市值取前 --max-tickers 只无脑 cold-pull,
+    不跳过已有 — 每次跑都重拉同一批, 只适合 --tickers debug. 全集回填请用 --backfill.
   Daily update: 拉 since=last_trade_date+1 → today, 通常 1-3 根 K, 1 配额/股.
     增量逻辑: 读现有 parquet 最后一行 trade_date, 没有就 cold start 全 6M.
+    注: 全集 daily 增量已迁到 scripts/update_daily.py (Futu snapshot 批量,
+    不吃 history_kline 1000/天 配额). 本脚本的 --incremental 仅留作 debug.
 
 数据 schema (沿用 sh_quant docs/DATA_SCHEMA.md §1):
   ~/.market_data/stocks/{ts_code}.HK.parquet  (5 位补零, 例 00700.HK.parquet)
@@ -40,10 +46,12 @@
     # Dry-run: 拉 universe + 印前 10 个 ticker 的 cold 计划, 不打 API
     python scripts/pull_hk_futu.py --dry-run
 
-    # 第一次 cold start: 拉前 800 支高液态股 6M 历史
-    python scripts/pull_hk_futu.py --max-tickers 800
+    # 第一次 cold start: 滚动回填. 每天跑一次, 每次吃 800 配额, 几天滚完全集.
+    python scripts/pull_hk_futu.py --backfill                # day 1: 拉市值前 ~800
+    python scripts/pull_hk_futu.py --backfill                # day 2: 接着拉下一批
+    python scripts/pull_hk_futu.py --backfill --dry-run      # 看本轮会拉哪些 / 还剩多少
 
-    # Daily 增量更新 (读现有 parquet 推 since)
+    # Daily 增量更新 (读现有 parquet 推 since) — debug 用, 全集走 update_daily.py
     python scripts/pull_hk_futu.py --incremental --max-tickers 800
 
     # 只跑指定 ticker (debug 用)
@@ -86,6 +94,10 @@ PORT = 11111
 # Futu 文档: history_kline 配额 1000/天. 保 200 给 retry / 偶发失败.
 DAILY_KLINE_QUOTA = 1000
 SAFE_QUOTA_BUDGET = 800
+
+# --backfill 选股上限: 拿全 HK universe (~2700) 当优先级序列. 给足余量, 实际
+# 受 min_market_cap 过滤 + get_stock_filter last_page 自然收敛.
+FULL_UNIVERSE_CAP = 5000
 
 # 数据落盘位置: 跟 DATA_SCHEMA.md §1 一致, ~/.market_data/stocks/
 DEFAULT_DATA_DIR = Path.home() / '.market_data' / 'stocks'
@@ -438,7 +450,14 @@ def main() -> None:
     parser.add_argument(
         '--incremental',
         action='store_true',
-        help='增量模式: 读现有 parquet 推 since (默认 cold 6M)',
+        help='增量模式: 读现有 parquet 推 since (默认 cold 6M). debug 用',
+    )
+    parser.add_argument(
+        '--backfill',
+        action='store_true',
+        help='滚动回填模式: 按市值降序遍历全 universe, 跳过已落盘的票, '
+        '对缺失的票 cold-pull 6M, 配额预算 (--max-tickers) 用完即停. '
+        '次日再跑自动从断点继续. 全集 cold start 推荐用这个.',
     )
     parser.add_argument(
         '--tickers',
@@ -494,29 +513,35 @@ def main() -> None:
                 f'first 5: {tickers[:5]}'
             )
         else:
+            # backfill: 拿全 universe (市值降序) 作为优先级序列, 配额上限交给
+            # 拉取循环 (跳过已落盘 + api_used 预算). legacy: 只取前 max_tickers.
+            select_n = FULL_UNIVERSE_CAP if args.backfill else args.max_tickers
             print(
                 f'[plan] fetching HK universe via get_stock_filter '
-                f'(market_cap >= {args.min_market_cap:.0e} HKD, descending) ...'
+                f'(market_cap >= {args.min_market_cap:.0e} HKD, descending, '
+                f'up to {select_n}) ...'
             )
             try:
                 tickers = fetch_universe_by_filter(
-                    ctx, args.max_tickers, args.min_market_cap
+                    ctx, select_n, args.min_market_cap
                 )
                 print(
-                    f'[plan] selected top {len(tickers)} by market cap, '
+                    f'[plan] universe size {len(tickers)} by market cap, '
                     f'first 5: {tickers[:5]}'
                 )
             except Exception as e:
                 print(f'⚠️  get_stock_filter failed: {e}')
                 print('[plan] fallback to heuristic')
                 uni = fetch_hk_universe(ctx)
-                tickers = select_tickers_heuristic(uni, args.max_tickers)
+                tickers = select_tickers_heuristic(uni, select_n)
                 print(
-                    f'[plan] selected top {len(tickers)} 主板 (heuristic), '
+                    f'[plan] universe size {len(tickers)} 主板 (heuristic), '
                     f'first 5: {tickers[:5]}'
                 )
 
-        if len(tickers) > SAFE_QUOTA_BUDGET:
+        # backfill 模式 tickers = 全 universe, 必然 > 配额, 但循环按 api_used
+        # 预算自停, 不是 over-quota — 只在 legacy 模式才告警.
+        if not args.backfill and len(tickers) > SAFE_QUOTA_BUDGET:
             print(
                 f'⚠️  warning: 选了 {len(tickers)} 只 > 安全配额 {SAFE_QUOTA_BUDGET}. '
                 '可能超过 1000 history_kline/天 限制.'
@@ -524,21 +549,47 @@ def main() -> None:
 
         # ── 3. dry-run? ────────────────────────────────────────────────────
         if args.dry_run:
-            print('\n[dry-run] would pull:')
-            for t in tickers[:10]:
-                last = existing_last_date(t, data_dir)
-                if args.incremental and last:
-                    next_day = (
-                        datetime.strptime(last, '%Y-%m-%d') + timedelta(days=1)
-                    ).strftime('%Y-%m-%d')
-                    print(f'  {t}: incremental since={next_day} → {today}')
+            cold_since = (
+                datetime.now() - timedelta(days=COLD_LOOKBACK_DAYS)
+            ).strftime('%Y-%m-%d')
+            if args.backfill:
+                on_disk = [
+                    t for t in tickers if existing_last_date(t, data_dir) is not None
+                ]
+                missing = [
+                    t for t in tickers if existing_last_date(t, data_dir) is None
+                ]
+                this_run = missing[: args.max_tickers]
+                print(
+                    f'\n[dry-run][backfill] universe={len(tickers)} '
+                    f'已落盘={len(on_disk)} 缺失={len(missing)} '
+                    f'本轮预算={args.max_tickers}'
+                )
+                print(f'[dry-run][backfill] 本轮会 cold-pull {len(this_run)} 只 '
+                      f'(since={cold_since} → {today}):')
+                for t in this_run[:10]:
+                    print(f'  {t}')
+                if len(this_run) > 10:
+                    print(f'  ... 还有 {len(this_run) - 10} 只')
+                left = len(missing) - len(this_run)
+                if left > 0:
+                    print(f'[dry-run][backfill] 本轮后还剩 ~{left} 只未覆盖, '
+                          '次日再跑 --backfill 继续.')
                 else:
-                    since = (
-                        datetime.now() - timedelta(days=COLD_LOOKBACK_DAYS)
-                    ).strftime('%Y-%m-%d')
-                    print(f'  {t}: cold since={since} → {today}')
-            if len(tickers) > 10:
-                print(f'  ... 还有 {len(tickers) - 10} 只')
+                    print('[dry-run][backfill] 本轮可覆盖全部缺失, 一轮滚完.')
+            else:
+                print('\n[dry-run] would pull:')
+                for t in tickers[:10]:
+                    last = existing_last_date(t, data_dir)
+                    if args.incremental and last:
+                        next_day = (
+                            datetime.strptime(last, '%Y-%m-%d') + timedelta(days=1)
+                        ).strftime('%Y-%m-%d')
+                        print(f'  {t}: incremental since={next_day} → {today}')
+                    else:
+                        print(f'  {t}: cold since={cold_since} → {today}')
+                if len(tickers) > 10:
+                    print(f'  ... 还有 {len(tickers) - 10} 只')
             print('\n[dry-run] not actually pulling. 跑去掉 --dry-run 真打.')
             return
 
@@ -546,11 +597,26 @@ def main() -> None:
         success = 0
         failed: list[tuple[str, str]] = []
         skipped: list[str] = []
+        on_disk = 0          # backfill: 已落盘被跳过 (0 配额)
+        api_used = 0         # 实际打 request_history_kline 的次数 (≈ 配额)
+        quota_stop = False   # backfill: 因预算用完提前停
+        scanned = 0          # 实际遍历到第几只 (backfill resume 用)
         t_start = time.time()
 
         for i, ts_code in enumerate(tickers, 1):
-            # 决定 since
-            if args.incremental:
+            scanned = i
+
+            # backfill: 已落盘的票直接跳过, 不打接口 (这是滚动回填的断点机制 —
+            # 次日再跑时这些已是 on_disk, 游标自然下移到市值序下一只未覆盖的).
+            if args.backfill and existing_last_date(ts_code, data_dir) is not None:
+                on_disk += 1
+                if i % 200 == 0:
+                    print(f'  [{i}/{len(tickers)}] 已落盘跳过 {on_disk}, '
+                          f'本轮已拉 {api_used}/{args.max_tickers}')
+                continue
+
+            # 决定 since: backfill 永远 cold (回填缺失的票, 忽略 --incremental)
+            if args.incremental and not args.backfill:
                 last = existing_last_date(ts_code, data_dir)
                 if last is None:
                     since = (
@@ -571,6 +637,7 @@ def main() -> None:
                 ).strftime('%Y-%m-%d')
 
             ok, payload = pull_one(ctx, ts_code, since, today)
+            api_used += 1
             if not ok:
                 failed.append((ts_code, str(payload)))
             else:
@@ -588,8 +655,17 @@ def main() -> None:
                 rate = i / elapsed if elapsed > 0 else 0
                 print(
                     f'  [{i}/{len(tickers)}] ✓{success} ✗{len(failed)} ⏭{len(skipped)} '
-                    f'({rate:.1f}/s, {elapsed:.0f}s)'
+                    f'api={api_used} ({rate:.1f}/s, {elapsed:.0f}s)'
                 )
+
+            # backfill: 配额预算用完即停 (空出 buffer 给重试 + 次日续跑).
+            if args.backfill and api_used >= args.max_tickers:
+                quota_stop = True
+                print(
+                    f'\n[backfill] 本轮配额预算 {args.max_tickers} 用完, '
+                    f'扫描到第 {scanned}/{len(tickers)} 只, 停.'
+                )
+                break
 
             # 轻量限速 (Futu 文档建议 ≤10次/秒, 这里保 5/s = 200ms/call)
             time.sleep(0.2)
@@ -601,15 +677,34 @@ def main() -> None:
         print(f'  ✓ 成功: {success}')
         print(f'  ✗ 失败: {len(failed)}')
         print(f'  ⏭ 跳过: {len(skipped)} (周末/已是最新/空返回)')
+        if args.backfill:
+            print(f'  ⏩ 已落盘跳过: {on_disk} (0 配额)')
+            # 未扫描尾部 = 全 universe - 已扫描. 这些 + 本轮 failed 都还没覆盖,
+            # 次日再跑 --backfill 会自动从这里续 (已落盘的继续被跳过).
+            tail = len(tickers) - scanned
+            remaining = tail + len(failed)
+            if quota_stop and remaining > 0:
+                print(
+                    f'\n[backfill] 还剩 ~{remaining} 只未覆盖 '
+                    f'(未扫描尾部 {tail} + 本轮失败 {len(failed)}). '
+                    '次日再跑 `python scripts/pull_hk_futu.py --backfill` 续.'
+                )
+            elif not quota_stop and len(failed) == 0:
+                print('\n[backfill] 全集已覆盖. cold start 完成, '
+                      '后续走 update_daily.py 日更.')
+            else:
+                print(
+                    f'\n[backfill] universe 扫完, 本轮失败 {len(failed)} 只无落盘, '
+                    '次日再跑 --backfill 会自动重试.'
+                )
         if failed:
             print('\n失败 sample (前 5):')
             for t, err in failed[:5]:
                 print(f'  {t}: {err}')
 
         # 配额警告
-        api_calls = success + len(failed)
-        print(f'\nhistory_kline 配额估算: ~{api_calls}/1000')
-        if api_calls > 900:
+        print(f'\nhistory_kline 配额估算: ~{api_used}/1000')
+        if api_used > 900:
             print('⚠️  接近 1000 上限. 明天再跑前等配额重置 (UTC+8 0:00).')
     finally:
         try:

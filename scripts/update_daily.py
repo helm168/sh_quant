@@ -18,7 +18,13 @@ A 股 + 美股 日线增量更新器 (统一日 cron 入口).
   美股 (.US):           FMP 主 → Polygon 备 → yfinance 兜底
                        理由：FMP 付费档给 30+ 年历史（深度优先），Polygon Starter
                        只有 5 年滚动；Polygon 留作备源做"数据校验对账"
-  港股 (.HK):           暂未实现，等富途 vendor 完成（周末）
+  港股 (.HK):           Futu OpenD market-snapshot 批量（日更专用）
+                       理由：request_history_kline 限 1000/天，全集 ~2700 拉不动；
+                       get_market_snapshot 无配额、≤400 码/call，~7 call 拿全市场
+                       最近交易日 bar。冷启动历史仍走 scripts/pull_hk_futu.py
+                       --backfill（滚动回填），本脚本只负责日更 append 一根 bar。
+                       注：snapshot 只含最近交易日；若 cron 漏跑多日，中间缺口需
+                       pull_hk_futu.py --incremental 补，本脚本不烧 kline 配额硬补。
 
 文件 schema (沿用 sh_quant 现有约定，详见 docs/DATA_SCHEMA.md):
   路径:  data_cache/stocks/<ts_code>.parquet
@@ -58,6 +64,8 @@ A 股 + 美股 日线增量更新器 (统一日 cron 入口).
 Cron 推荐（A 股收盘后 1 小时，美股收盘后 1 小时）:
     # 北京时间 17:00 跑 A 股
     0 17 * * 1-5 cd ~/Documents/Code/sh_quant && .venv/bin/python scripts/update_daily.py --market cn
+    # 港股收盘后 (北京时间 16:30)，需 FutuOpenD 常驻
+    30 16 * * 1-5 cd ~/Documents/Code/sh_quant && .venv/bin/python scripts/update_daily.py --market hk
     # 美股次日 6:00（北京时间）跑
     0 6 * * 2-6 cd ~/Documents/Code/sh_quant && .venv/bin/python scripts/update_daily.py --market us
 """
@@ -123,6 +131,16 @@ _BATCH_MAX_DATE: pd.Timestamp | None = None
 _BATCH_HIT_COUNT = 0
 _BATCH_MISS_COUNT = 0
 _VERIFY_MODE = False  # --verify N 设置时为 True, fast-path 强制 skip
+
+# ---------- 港股 Futu snapshot 批量 ----------
+# 日更场景: 每只 HK 股 append 最近交易日一根 bar. get_market_snapshot 无配额
+# (≠ request_history_kline 1000/天), 一次 ≤400 码, ~2700/400≈7 call 拿全市场.
+# 冷启动历史走 pull_hk_futu.py --backfill; 本脚本只做日更.
+_FUTU_SNAP_CACHE: dict[str, pd.DataFrame] = {}  # ts_code -> 单行最近交易日 bar
+_FUTU_SNAP_DATE: pd.Timestamp | None = None
+_FUTU_HK_HOST = '127.0.0.1'
+_FUTU_HK_PORT = 11111
+_FUTU_SNAP_CHUNK = 400  # Futu get_market_snapshot 单次上限
 
 
 def _warn_once(msg: str, key: str = '') -> None:
@@ -548,6 +566,126 @@ def _fetch_us_via_polygon(ts_code: str, start: str, end: str) -> pd.DataFrame | 
     return df
 
 
+def _ts_code_to_futu(ts_code: str) -> str:
+    """`00700.HK` (sh_quant) → `HK.00700` (Futu)."""
+    return f'HK.{ts_code.split(".")[0]}'
+
+
+def _futu_snapshot_rows_to_schema(snap: pd.DataFrame) -> pd.DataFrame:
+    """Futu get_market_snapshot DataFrame → sh_quant 标准列 (每股一行).
+
+    Futu 列: code, update_time, last_price, open_price, high_price,
+        low_price, prev_close_price, volume, turnover
+    adj_factor 填 1.0 — 最新行约定 (pull_hk_futu 里 latest forward_B=0 → adj=1.0
+    一致). 历史复权因子由 pull_hk_futu.py --backfill 落盘, 日更只 append raw bar.
+    """
+    out = pd.DataFrame()
+    out['trade_date'] = pd.to_datetime(
+        pd.to_datetime(snap['update_time']).dt.strftime('%Y-%m-%d')
+    )
+    out['ts_code'] = [c.split('.')[1] + '.HK' for c in snap['code']]
+    out['open'] = snap['open_price'].astype(float)
+    out['high'] = snap['high_price'].astype(float)
+    out['low'] = snap['low_price'].astype(float)
+    out['close'] = snap['last_price'].astype(float)
+    out['pre_close'] = snap['prev_close_price'].astype(float)
+    out['change'] = (snap['last_price'] - snap['prev_close_price']).astype(float)
+    out['pct_chg'] = (
+        (snap['last_price'] / snap['prev_close_price'] - 1.0) * 100
+    ).astype(float)
+    out['vol'] = snap['volume'].astype('int64')  # 港股单位=股, 与 schema 一致
+    out['amount'] = snap['turnover'].astype(float)  # HKD
+    out['adj_factor'] = 1.0
+    # 停牌当天 snapshot 可能 prev_close=0 / last=0 → 脏行, 丢弃
+    out = out[(out['close'] > 0) & (out['pre_close'] > 0)].reset_index(drop=True)
+    return out
+
+
+def _prefetch_futu_snapshot_batch(hk_tickers: list[str]) -> int:
+    """批量拉全 HK universe 最近交易日 snapshot, 填 _FUTU_SNAP_CACHE.
+
+    get_market_snapshot 无 history_kline 配额, ≤400 码/call. 任何失败
+    (futu 没装 / OpenD 没起 / 接口挂) 返 0, HK 静默降级到 'hk_no_snapshot'
+    (不阻塞 CN/US 主流程).
+    """
+    global _FUTU_SNAP_CACHE, _FUTU_SNAP_DATE
+
+    try:
+        from futu import RET_OK, OpenQuoteContext
+    except ImportError:
+        _warn_once(
+            'futu-api 没装, HK 日更跳过 (pip install futu-api). 不影响 CN/US.',
+            key='futu_missing',
+        )
+        return 0
+
+    try:
+        ctx = OpenQuoteContext(host=_FUTU_HK_HOST, port=_FUTU_HK_PORT)
+    except Exception as e:
+        _warn_once(
+            f'FutuOpenD 连不上 ({e}); HK 日更跳过. OpenD 起了吗? '
+            f'lsof -i :{_FUTU_HK_PORT}',
+            key='futu_opend_down',
+        )
+        return 0
+
+    rows: list[pd.DataFrame] = []
+    try:
+        for i in range(0, len(hk_tickers), _FUTU_SNAP_CHUNK):
+            chunk = [_ts_code_to_futu(t) for t in hk_tickers[i : i + _FUTU_SNAP_CHUNK]]
+            ret, data = ctx.get_market_snapshot(chunk)
+            if ret != RET_OK:
+                _warn_once(
+                    f'get_market_snapshot 失败 (chunk {i}): {data}',
+                    key='futu_snap_err',
+                )
+                continue
+            if data is not None and len(data) > 0:
+                rows.append(_futu_snapshot_rows_to_schema(data))
+            time.sleep(0.5)  # Futu snapshot 限速 ~60/30s, chunk 间留 buffer
+    finally:
+        try:
+            ctx.close()
+        except Exception:
+            pass
+
+    if not rows:
+        return 0
+    allrows = pd.concat(rows, ignore_index=True)
+    by_code: dict[str, pd.DataFrame] = {}
+    for code, sub in allrows.groupby('ts_code'):
+        by_code[str(code)] = sub.sort_values('trade_date').reset_index(drop=True)
+
+    _FUTU_SNAP_CACHE = by_code
+    _FUTU_SNAP_DATE = allrows['trade_date'].max()
+    return len(by_code)
+
+
+def _fetch_hk_via_futu(ts_code: str, start: str, end: str) -> pd.DataFrame | None:
+    """从 _FUTU_SNAP_CACHE 取这只 HK 股的最近交易日 bar (日更 fast-path).
+
+    snapshot 只含最近一个交易日 — 没有 per-ticker history_kline 慢路径 (那会烧
+    1000/天 配额, 全集 ~2700 直接爆). 因此:
+      - snap_date 落在请求 [start, end] 内 → 返回那一行 (append 当日 bar)
+      - 不在窗口 / 没缓存这只 → 返回 None ('empty', 不烧配额)
+    若本地 last_cached 落后多日 (cron 漏跑), 中间缺口不在这里硬补 — 走
+    pull_hk_futu.py --incremental 手动 catch-up (header docstring 已注明).
+    """
+    if _FUTU_SNAP_DATE is None:
+        return None
+    cached = _FUTU_SNAP_CACHE.get(ts_code)
+    if cached is None or cached.empty:
+        return None
+    try:
+        start_dt = pd.Timestamp(start)
+        end_dt = pd.Timestamp(end)
+    except Exception:
+        return None
+    if not (start_dt <= _FUTU_SNAP_DATE <= end_dt):
+        return None
+    return cached.copy()
+
+
 # ---------- 路由 ----------
 
 
@@ -585,8 +723,12 @@ def fetch_one(ts_code: str, start: str, end: str) -> tuple[pd.DataFrame | None, 
         return None, 'none'
 
     if market == 'cn_hk':
-        # 港股待集成富途
-        return None, 'hk_not_implemented'
+        # Futu snapshot 批量 (日更 append 一根 bar). 冷启动历史走
+        # pull_hk_futu.py --backfill. snapshot 没起/没装 → None ('empty').
+        df = _fetch_hk_via_futu(ts_code, start, end)
+        if df is not None and len(df) > 0:
+            return df, 'futu_snapshot'
+        return None, 'hk_no_snapshot'
 
     return None, f'unknown_market({ts_code})'
 
@@ -995,6 +1137,30 @@ def main() -> int:
         print(
             f'  [batch] CN ticker {cn_count} < {BATCH_MIN_TICKERS}, '
             '跳过 batch (小批次直接 per-ticker)'
+        )
+        print('-' * 70)
+
+    # 港股 Futu snapshot 批量预拉 (日更专用, 无 history_kline 配额).
+    #   --force / --verify: HK 没有 per-ticker 慢路径 (会爆配额), snapshot 也跳过
+    #     → HK 标 'hk_no_snapshot'/'empty'. 想补 HK 历史用 pull_hk_futu.py --backfill.
+    hk_tickers = [t for t in tickers if parse_market(t) == 'cn_hk']
+    if hk_tickers and not (args.force or args.verify):
+        print(f'  [hk] {len(hk_tickers)} 只 HK ticker, 启动 Futu snapshot 批量预拉')
+        t_pre = time.time()
+        n_snap = _prefetch_futu_snapshot_batch(hk_tickers)
+        if n_snap:
+            print(
+                f'  [hk] Futu snapshot 预拉 {n_snap} 只 @ '
+                f'{_FUTU_SNAP_DATE.strftime("%Y-%m-%d")}, '
+                f'用时 {time.time() - t_pre:.1f}s'
+            )
+        else:
+            print('  [hk] snapshot 预拉未启用 (futu 没装 / OpenD 没起), HK 跳过')
+        print('-' * 70)
+    elif hk_tickers and (args.force or args.verify):
+        print(
+            f'  [hk] {len(hk_tickers)} 只 HK ticker, --force/--verify 下 snapshot '
+            '跳过 (HK 历史走 pull_hk_futu.py --backfill)'
         )
         print('-' * 70)
 
