@@ -19,7 +19,8 @@ A 股 + 美股 日线增量更新器 (统一日 cron 入口).
                        理由：FMP 付费档给 30+ 年历史（深度优先），Polygon Starter
                        只有 5 年滚动；Polygon 留作备源做"数据校验对账"
   港股 (.HK):           Futu OpenD market-snapshot 批量（日更专用）
-                       理由：request_history_kline 限 1000/天，全集 ~2700 拉不动；
+                       理由：request_history_kline 是滚动 30 天账户配额（约
+                       ~1000 只/30天，按富途资产分级），全集 ~2700 拉不动；
                        get_market_snapshot 无配额、≤400 码/call，~7 call 拿全市场
                        最近交易日 bar。冷启动历史仍走 scripts/pull_hk_futu.py
                        --backfill（滚动回填），本脚本只负责日更 append 一根 bar。
@@ -152,7 +153,7 @@ _POLY_BATCH_MISS_COUNT = 0
 
 # ---------- 港股 Futu snapshot 批量 ----------
 # 日更场景: 每只 HK 股 append 最近交易日一根 bar. get_market_snapshot 无配额
-# (≠ request_history_kline 1000/天), 一次 ≤400 码, ~2700/400≈7 call 拿全市场.
+# (≠ request_history_kline 的滚动 30 天账户配额), 一次 ≤400 码, ~7 call 拿全市场.
 # 冷启动历史走 pull_hk_futu.py --backfill; 本脚本只做日更.
 _FUTU_SNAP_CACHE: dict[str, pd.DataFrame] = {}  # ts_code -> 单行最近交易日 bar
 _FUTU_SNAP_DATE: pd.Timestamp | None = None
@@ -867,7 +868,7 @@ def _fetch_hk_via_futu(ts_code: str, start: str, end: str) -> pd.DataFrame | Non
     """从 _FUTU_SNAP_CACHE 取这只 HK 股的最近交易日 bar (日更 fast-path).
 
     snapshot 只含最近一个交易日 — 没有 per-ticker history_kline 慢路径 (那会烧
-    1000/天 配额, 全集 ~2700 直接爆). 因此:
+    滚动 30 天账户配额, 全集 ~2700 直接爆). 因此:
       - snap_date 落在请求 [start, end] 内 → 返回那一行 (append 当日 bar)
       - 不在窗口 / 没缓存这只 → 返回 None ('empty', 不烧配额)
     若本地 last_cached 落后多日 (cron 漏跑), 中间缺口不在这里硬补 — 走

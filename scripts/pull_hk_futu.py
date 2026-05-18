@@ -6,10 +6,15 @@
   - Tushare 5000 档 hk_daily 限 10次/天 + 2次/分钟硬上限, 等于不能用
   - Futu OpenD 是富途券商, HK Lv1 免费, 数据笔记准确, 端口 11111
 
-配额限制 (Futu 文档):
-  - request_history_kline (历史 K 线): **1000 次/天**
-  - get_market_snapshot / get_stock_basicinfo: 无限制
-  - 一次 request_history_kline 拉一只票 ≤ 1000 根 K, 算 1 次配额
+配额限制 (Futu 实测, 重要 — 不是按天重置):
+  - request_history_kline (历史 K 线): **滚动 30 天配额**, 不是 "1000/天".
+    每 cold-pull 一只新票消耗 1 个 slot, 该 slot 在 30 天后才释放. 账户级
+    总额随富途资产/等级浮动 (本机实测 ~1000 只/30天: 旧 775 + 新 200 ≈ 975
+    后即报 "Insufficient historical candlestick quota ... released after 30 days").
+    => 全集 ~2700 在这一档**根本拉不完**; 跑到上限后当天/次日重跑仍会失败,
+       只能等 30 天前用掉的 slot 按天滴漏释放. 详见下方"策略".
+  - get_market_snapshot / get_stock_basicinfo / get_stock_filter: 不吃此配额
+  - 一次 request_history_kline 拉一只票 ≤ 1000 根 K, 算 1 个 slot
 
 策略
 ────
@@ -17,15 +22,22 @@
     data_cache/universe/cn_hk.parquet (先跑 pull_hk_universe.py 生成), 按市值
     降序, **排除 RMB_COUNTER** (跟主柜台同公司同价, 回填=重复拉白烧配额).
     **跳过已落盘的票** (parquet 已存在且非空, 0 配额), 对缺失的票 cold-pull 6M
-    ≤ 200 根 (1 配额/股), 配额预算 (--max-tickers, 默认 800) 用完即停. 因为
-    已落盘的会被跳过, 次日再跑 --backfill 自动从断点继续, 几天滚完全集. 失败
-    的票没落盘, 下轮自动重试. universe 步骤纯本地读 parquet, 零网络.
+    ≤ 200 根 (1 slot/股), --max-tickers 是单轮上限 (默认 800).
+    现实预期 (因为是滚动 30 天配额, 不是按天重置):
+      - 一轮能拉多少 = min(--max-tickers, 账户剩余 30 天 slot). 撞到账户上限
+        后, 当天/次日重跑那些失败票仍会失败 — 不会"几天滚完全集".
+      - 失败票没落盘, 会随 30 天前 slot **按天滴漏释放**逐步补上. 建议
+        cron **每周**跑一次 --backfill 让它自愈, 而非每天 (每天无用功).
+      - ≥10亿那档 ~1264 只基本一档资产能覆盖; 全集 ~2700 这一档拉不完,
+        要么升富途账户等级, 要么接受只覆盖高市值流动池 (研究足够).
+    已落盘的会被跳过 => 下一轮自动从断点继续 (前提是配额已释放).
+    universe 步骤纯本地读 parquet, 零网络.
   Cold start (legacy, 无 --backfill): inline get_stock_filter 取前 --max-tickers
     只无脑 cold-pull, 不跳过已有 — 每次重拉同一批, 只适合 --tickers debug.
-  Daily update: 拉 since=last_trade_date+1 → today, 通常 1-3 根 K, 1 配额/股.
+  Daily update: 拉 since=last_trade_date+1 → today, 通常 1-3 根 K, 1 slot/股.
     增量逻辑: 读现有 parquet 最后一行 trade_date, 没有就 cold start 全 6M.
     注: 全集 daily 增量已迁到 scripts/update_daily.py (Futu snapshot 批量,
-    不吃 history_kline 1000/天 配额). 本脚本的 --incremental 仅留作 debug.
+    不吃 history_kline 配额, 不受上面 30 天配额限制). --incremental 仅留 debug.
 
 数据 schema (沿用 sh_quant docs/DATA_SCHEMA.md §1):
   data_cache/stocks/{ts_code}.HK.parquet  (5 位补零, 例 00700.HK.parquet;
@@ -52,9 +64,10 @@
     # Dry-run: 读 cn_hk.parquet 印本轮 cold 计划, 不打 API
     python scripts/pull_hk_futu.py --backfill --dry-run
 
-    # 第一次 cold start: 滚动回填. 每天跑一次, 每次吃 800 配额, 几天滚完全集.
-    python scripts/pull_hk_futu.py --backfill                # day 1: 拉市值前 ~800
-    python scripts/pull_hk_futu.py --backfill                # day 2: 接着拉下一批
+    # cold start: 一轮拉 ≤800 (或撞账户 30 天配额上限即停). 滚动 30 天配额,
+    # 不是按天重置 => 别每天跑 (次日多半还在配额上限). cron 每周一轮自愈:
+    #   0 7 * * 1  cd ~/Documents/Code/sh_quant && .venv/bin/python scripts/pull_hk_futu.py --backfill
+    python scripts/pull_hk_futu.py --backfill                # 已落盘跳过, 拉缺失
 
     # Daily 增量更新 (读现有 parquet 推 since) — debug 用, 全集走 update_daily.py
     python scripts/pull_hk_futu.py --incremental --max-tickers 800
@@ -95,8 +108,9 @@ except ImportError:
 HOST = '127.0.0.1'
 PORT = 11111
 
-# Futu 文档: history_kline 配额 1000/天. 保 200 给 retry / 偶发失败.
-DAILY_KLINE_QUOTA = 1000
+# --backfill 单轮 ticker 上限 (--max-tickers 默认值). 注意: history_kline 是
+# **滚动 30 天**账户配额 (见模块 docstring), 不是按天重置 — 这个数只是单轮
+# 礼貌上限, 真正的天花板是账户剩余 slot, 撞到就提前停 (loop 里据实报告).
 SAFE_QUOTA_BUDGET = 800
 
 # get_stock_filter 限速: 富途文档 "Maximum 10 times per 30 seconds" = 1 次/3s.
@@ -206,7 +220,7 @@ def get_rehab_factors(ctx: OpenQuoteContext, ts_code: str) -> pd.DataFrame:
     因子用. B 是截距不是 ratio, 5.3 实际是"累计派息加回历史价" 的港币额, 不是
     什么 normalized 因子.
 
-    get_rehab 是独立 quota (10/s 限速), 不算 history_kline 1000/天.
+    get_rehab 是独立 quota (10/s 限速), 不算 history_kline 30 天配额.
 
     Returns:
         DataFrame columns=['ex_div_date', 'forward_a', 'forward_b'],
@@ -316,7 +330,7 @@ def pull_one(
     拉单只票 since→until 的日 K + 复权因子.
 
     两步 API:
-      1. request_history_kline (AuType.NONE, 算 history_kline 1000/天 quota)
+      1. request_history_kline (AuType.NONE, 消耗 1 个 30 天滚动配额 slot)
       2. get_rehab (独立 quota, 限速 10/s) — 拿后复权因子表, attach 到 kline
     """
     futu_sym = ts_code_to_futu(ts_code)
@@ -379,7 +393,7 @@ def fetch_universe_by_filter(
     用 Futu get_stock_filter 拿"市值 >= X + 按市值降序" 的 ticker 列表.
 
     比 get_stock_basicinfo + 启发式排序准: 直接拿到流动性 / 规模意义上的 HK 头部
-    股票. get_stock_filter 不吃 history_kline 1000/天 配额, 但**有独立限速**:
+    股票. get_stock_filter 不吃 history_kline 30 天配额, 但**有独立限速**:
     Maximum 10 times / 30s. 翻页拿全集时页间 sleep STOCK_FILTER_SLEEP_SEC.
 
     分页: Futu 单次返 ≤ 200, 翻页 begin=0,200,400... 直到拿满 max_n.
@@ -504,7 +518,8 @@ def main() -> None:
         action='store_true',
         help='滚动回填模式: 从 cn_hk.parquet (pull_hk_universe.py 产物) 读 ticker, '
         '市值降序遍历, 排除 RMB_COUNTER, 跳过已落盘的票, 对缺失的 cold-pull 6M, '
-        '配额预算 (--max-tickers) 用完即停. 次日再跑自动从断点继续. cold start 用这个.',
+        '单轮 --max-tickers 或撞账户 30 天配额上限即停. 已落盘跳过=断点续传, '
+        '但 history_kline 是滚动 30 天配额非按天重置, 建议 cron 每周跑一次自愈.',
     )
     parser.add_argument(
         '--tickers',
@@ -614,11 +629,15 @@ def main() -> None:
                 left = len(missing) - len(this_run)
                 if left > 0:
                     print(
-                        f'[dry-run][backfill] 本轮后还剩 ~{left} 只未覆盖, '
-                        '次日再跑 --backfill 继续.'
+                        f'[dry-run][backfill] 本轮后还剩 ~{left} 只未覆盖. '
+                        '注: history_kline 是滚动 30 天配额, 撞账户上限会更早停; '
+                        '没拉完的随 30 天前 slot 释放逐周补 (cron 每周一轮).'
                     )
                 else:
-                    print('[dry-run][backfill] 本轮可覆盖全部缺失, 一轮滚完.')
+                    print(
+                        '[dry-run][backfill] 缺口 ≤ 单轮上限 — 配额够的话一轮覆盖; '
+                        '若账户 30 天 slot 不足, 会拉到上限即停, 余下逐周自愈.'
+                    )
             else:
                 print('\n[dry-run] would pull:')
                 for t in tickers[:10]:
@@ -649,7 +668,7 @@ def main() -> None:
             scanned = i
 
             # backfill: 已落盘的票直接跳过, 不打接口 (这是滚动回填的断点机制 —
-            # 次日再跑时这些已是 on_disk, 游标自然下移到市值序下一只未覆盖的).
+            # 下一轮跑时这些已是 on_disk, 游标自然下移到市值序下一只未覆盖的).
             if args.backfill and existing_last_date(ts_code, data_dir) is not None:
                 on_disk += 1
                 if i % 200 == 0:
@@ -700,7 +719,8 @@ def main() -> None:
                     f'api={api_used} ({rate:.1f}/s, {elapsed:.0f}s)'
                 )
 
-            # backfill: 配额预算用完即停 (空出 buffer 给重试 + 次日续跑).
+            # backfill: 单轮 --max-tickers 上限用完即停 (注: 真正天花板是账户
+            # 30 天滚动配额, 撞到会更早地以 quota 错误失败, 见下方总结).
             if args.backfill and api_used >= args.max_tickers:
                 quota_stop = True
                 print(
@@ -719,34 +739,51 @@ def main() -> None:
         print(f'  ✓ 成功: {success}')
         print(f'  ✗ 失败: {len(failed)}')
         print(f'  ⏭ 跳过: {len(skipped)} (周末/已是最新/空返回)')
+        # 区分"配额耗尽失败"与普通失败 (网络/停牌). 富途配额错文案含下列关键字.
+        quota_failed = sum(
+            1
+            for _, e in failed
+            if 'historical candlestick quota' in e or 'released after 30 days' in e
+        )
         if args.backfill:
             print(f'  ⏩ 已落盘跳过: {on_disk} (0 配额)')
-            # 未扫描尾部 = 全 universe - 已扫描. 这些 + 本轮 failed 都还没覆盖,
-            # 次日再跑 --backfill 会自动从这里续 (已落盘的继续被跳过).
             tail = len(tickers) - scanned
             remaining = tail + len(failed)
-            if quota_stop and remaining > 0:
+            if quota_failed > 0:
                 print(
-                    f'\n[backfill] 还剩 ~{remaining} 只未覆盖 '
-                    f'(未扫描尾部 {tail} + 本轮失败 {len(failed)}). '
-                    '次日再跑 `python scripts/pull_hk_futu.py --backfill` 续.'
+                    f'\n[backfill] 撞到账户 history_kline **滚动 30 天配额**上限: '
+                    f'{quota_failed}/{len(failed)} 只失败是配额耗尽 (非网络错). '
+                    f'还剩 ~{remaining} 只未覆盖.\n'
+                    '  → 非按天重置: 当天/次日重跑这些仍会失败. 没拉的会随 30 天前\n'
+                    '    用掉的 slot 按天滴漏释放逐步补上 — cron **每周**跑一次\n'
+                    '    --backfill 自愈即可, 别每天跑. 已落盘历史不受影响, 日更走\n'
+                    '    update_daily.py snapshot (独立配额) 照常.'
+                )
+            elif quota_stop and remaining > 0:
+                print(
+                    f'\n[backfill] 单轮 --max-tickers={args.max_tickers} 用完, '
+                    f'还剩 ~{remaining} 只 (未扫描 {tail} + 失败 {len(failed)}). '
+                    '未撞账户 30 天配额, 下一轮 --backfill 继续 (已落盘跳过).'
                 )
             elif not quota_stop and len(failed) == 0:
                 print('\n[backfill] 全集已覆盖. cold start 完成, 后续走 update_daily.py 日更.')
             else:
                 print(
-                    f'\n[backfill] universe 扫完, 本轮失败 {len(failed)} 只无落盘, '
-                    '次日再跑 --backfill 会自动重试.'
+                    f'\n[backfill] universe 扫完, {len(failed)} 只失败无落盘 '
+                    '(非配额, 多为网络/停牌). 下一轮 --backfill 自动重试.'
                 )
         if failed:
             print('\n失败 sample (前 5):')
             for t, err in failed[:5]:
                 print(f'  {t}: {err}')
 
-        # 配额警告
-        print(f'\nhistory_kline 配额估算: ~{api_used}/1000')
-        if api_used > 900:
-            print('⚠️  接近 1000 上限. 明天再跑前等配额重置 (UTC+8 0:00).')
+        # 配额提示 (滚动 30 天, 不是按天重置 — 没有"明天就满血"这回事)
+        print(f'\n本轮消耗 history_kline slot: {api_used} (30 天滚动账户配额)')
+        if quota_failed > 0:
+            print(
+                '⚠️  已撞账户配额上限. 30 天滚动释放, 无次日重置; '
+                'cron 每周一轮自愈, 别每天空跑.'
+            )
     finally:
         with contextlib.suppress(Exception):
             ctx.close()
