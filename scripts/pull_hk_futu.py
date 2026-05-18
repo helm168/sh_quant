@@ -13,20 +13,23 @@
 
 策略
 ────
-  Cold start (--backfill, 推荐): 滚动回填全集. 按市值降序遍历 HK 全 universe
-    (~2700 支), **跳过已落盘的票** (parquet 已存在且非空, 0 配额), 对缺失的票
-    cold-pull 6M ≤ 200 根 (1 配额/股), 配额预算 (--max-tickers, 默认 800) 用完
-    即停. 因为已落盘的会被跳过, 次日再跑 --backfill 自动从断点 (市值序下一只
-    未覆盖的) 继续, 几天滚完全集. 失败的票没落盘, 下轮自动重试.
-  Cold start (legacy, 无 --backfill): 按市值取前 --max-tickers 只无脑 cold-pull,
-    不跳过已有 — 每次跑都重拉同一批, 只适合 --tickers debug. 全集回填请用 --backfill.
+  Cold start (--backfill, 推荐): 滚动回填全集. ticker 来自 canonical universe
+    data_cache/universe/cn_hk.parquet (先跑 pull_hk_universe.py 生成), 按市值
+    降序, **排除 RMB_COUNTER** (跟主柜台同公司同价, 回填=重复拉白烧配额).
+    **跳过已落盘的票** (parquet 已存在且非空, 0 配额), 对缺失的票 cold-pull 6M
+    ≤ 200 根 (1 配额/股), 配额预算 (--max-tickers, 默认 800) 用完即停. 因为
+    已落盘的会被跳过, 次日再跑 --backfill 自动从断点继续, 几天滚完全集. 失败
+    的票没落盘, 下轮自动重试. universe 步骤纯本地读 parquet, 零网络.
+  Cold start (legacy, 无 --backfill): inline get_stock_filter 取前 --max-tickers
+    只无脑 cold-pull, 不跳过已有 — 每次重拉同一批, 只适合 --tickers debug.
   Daily update: 拉 since=last_trade_date+1 → today, 通常 1-3 根 K, 1 配额/股.
     增量逻辑: 读现有 parquet 最后一行 trade_date, 没有就 cold start 全 6M.
     注: 全集 daily 增量已迁到 scripts/update_daily.py (Futu snapshot 批量,
     不吃 history_kline 1000/天 配额). 本脚本的 --incremental 仅留作 debug.
 
 数据 schema (沿用 sh_quant docs/DATA_SCHEMA.md §1):
-  ~/.market_data/stocks/{ts_code}.HK.parquet  (5 位补零, 例 00700.HK.parquet)
+  data_cache/stocks/{ts_code}.HK.parquet  (5 位补零, 例 00700.HK.parquet;
+  跟 update_daily.py 读写同目录, 故 backfill 的历史日更能直接接上)
   columns: trade_date, ts_code, open, high, low, close, pre_close,
            change, pct_chg, vol, amount, adj_factor
 
@@ -43,13 +46,15 @@
     source .venv/bin/activate
     pip install futu-api
 
-    # Dry-run: 拉 universe + 印前 10 个 ticker 的 cold 计划, 不打 API
-    python scripts/pull_hk_futu.py --dry-run
+    # 前置 (只需一次, 之后偶尔刷新): 生成 canonical universe
+    python scripts/pull_hk_universe.py --min-mv 0
+
+    # Dry-run: 读 cn_hk.parquet 印本轮 cold 计划, 不打 API
+    python scripts/pull_hk_futu.py --backfill --dry-run
 
     # 第一次 cold start: 滚动回填. 每天跑一次, 每次吃 800 配额, 几天滚完全集.
     python scripts/pull_hk_futu.py --backfill                # day 1: 拉市值前 ~800
     python scripts/pull_hk_futu.py --backfill                # day 2: 接着拉下一批
-    python scripts/pull_hk_futu.py --backfill --dry-run      # 看本轮会拉哪些 / 还剩多少
 
     # Daily 增量更新 (读现有 parquet 推 since) — debug 用, 全集走 update_daily.py
     python scripts/pull_hk_futu.py --incremental --max-tickers 800
@@ -95,17 +100,18 @@ PORT = 11111
 DAILY_KLINE_QUOTA = 1000
 SAFE_QUOTA_BUDGET = 800
 
-# --backfill 选股上限: 拿全 HK universe (~2700) 当优先级序列. 给足余量, 实际
-# 受 min_market_cap 过滤 + get_stock_filter last_page 自然收敛.
-FULL_UNIVERSE_CAP = 5000
-
 # get_stock_filter 限速: 富途文档 "Maximum 10 times per 30 seconds" = 1 次/3s.
 # 翻页拿全 universe (~14 页) 必须页间限速, 否则 begin>=2000 处必报 high-frequency.
 STOCK_FILTER_SLEEP_SEC = 3.5
 
-# 数据落盘位置: 跟 DATA_SCHEMA.md §1 一致, ~/.market_data/stocks/
-DEFAULT_DATA_DIR = Path.home() / '.market_data' / 'stocks'
-UNIVERSE_DIR = Path.home() / '.market_data' / 'universe'
+# 数据落盘位置: 跟 update_daily.py / DATA_SCHEMA.md 一致, 项目内 data_cache/.
+# (旧版指向 ~/.market_data/, 跟日更读的目录不一致导致 backfill 历史日更看不到;
+#  统一到 data_cache/ 是单一真相源.)
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_DATA_DIR = PROJECT_ROOT / 'data_cache' / 'stocks'
+UNIVERSE_DIR = PROJECT_ROOT / 'data_cache' / 'universe'
+# --backfill 的 canonical universe 源 (pull_hk_universe.py 产物)
+DEFAULT_UNIVERSE_FILE = UNIVERSE_DIR / 'cn_hk.parquet'
 
 # Cold start 历史长度
 COLD_LOOKBACK_DAYS = 200
@@ -442,6 +448,46 @@ def select_tickers_heuristic(uni_df: pd.DataFrame, max_n: int) -> list[str]:
     return universe_to_ts_codes(df)
 
 
+def load_universe_tickers(
+    universe_file: Path,
+    min_market_cap_hkd: float,
+    exclude_boards: tuple[str, ...] = ('RMB_COUNTER',),
+) -> list[str]:
+    """从 pull_hk_universe.py 产物 cn_hk.parquet 读 --backfill 的 ticker 列表.
+
+    单一真相源: code / 市值 / board 都来自 universe 文件, 不再 inline
+    get_stock_filter (也就不吃它的 10 次/30s 限速, backfill universe 步骤零网络).
+
+      - 排除 board ∈ exclude_boards (默认 RMB_COUNTER: 跟主柜台同公司同价,
+        回填 = 重复拉, 白烧 history_kline 配额). GEM 是独立公司, 保留.
+      - market_cap >= 阈值 (universe 单位=亿港元; 入参港元, /1e8 对齐)
+      - 按 market_cap 降序 (高市值优先, 配合滚动断点)
+
+    universe 文件缺失 → 直接报错退出 (不静默回退 get_stock_filter — 那会破坏
+    单一真相源, 且违背 "拿不到就报错不静默" 原则). 提示先跑 pull_hk_universe.py.
+    """
+    if not universe_file.exists():
+        sys.exit(
+            f'universe 文件不存在: {universe_file}\n'
+            '→ 先生成: python scripts/pull_hk_universe.py --min-mv 0'
+        )
+    df = pd.read_parquet(universe_file)
+    n0 = len(df)
+    df = df[~df['board'].isin(exclude_boards)]
+    n_excl = n0 - len(df)
+    threshold_yi = min_market_cap_hkd / 1e8
+    df = df[df['market_cap'] >= threshold_yi]
+    df = df.sort_values('market_cap', ascending=False)
+    tickers = df['ts_code'].tolist()
+    print(
+        f'[plan] universe {universe_file.name}: {n0} 行, '
+        f'排除 {n_excl} ({"/".join(exclude_boards)}), '
+        f'market_cap>={threshold_yi:.0f}亿 后 {len(tickers)} 只, '
+        f'first 5: {tickers[:5]}'
+    )
+    return tickers
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 
@@ -461,9 +507,9 @@ def main() -> None:
     parser.add_argument(
         '--backfill',
         action='store_true',
-        help='滚动回填模式: 按市值降序遍历全 universe, 跳过已落盘的票, '
-        '对缺失的票 cold-pull 6M, 配额预算 (--max-tickers) 用完即停. '
-        '次日再跑自动从断点继续. 全集 cold start 推荐用这个.',
+        help='滚动回填模式: 从 cn_hk.parquet (pull_hk_universe.py 产物) 读 ticker, '
+        '市值降序遍历, 排除 RMB_COUNTER, 跳过已落盘的票, 对缺失的 cold-pull 6M, '
+        '配额预算 (--max-tickers) 用完即停. 次日再跑自动从断点继续. cold start 用这个.',
     )
     parser.add_argument(
         '--tickers',
@@ -487,7 +533,13 @@ def main() -> None:
         '--data-dir',
         type=str,
         default=str(DEFAULT_DATA_DIR),
-        help=f'parquet 落盘目录 (默认 {DEFAULT_DATA_DIR})',
+        help=f'parquet 落盘目录 (默认 {DEFAULT_DATA_DIR}, 跟 update_daily 一致)',
+    )
+    parser.add_argument(
+        '--universe-file',
+        type=str,
+        default=str(DEFAULT_UNIVERSE_FILE),
+        help=f'--backfill 的 universe 源 (默认 {DEFAULT_UNIVERSE_FILE})',
     )
     args = parser.parse_args()
 
@@ -509,6 +561,13 @@ def main() -> None:
         if args.tickers:
             tickers = [t.strip() for t in args.tickers.split(',') if t.strip()]
             print(f'[plan] explicit tickers: {len(tickers)} 只')
+        elif args.backfill:
+            # 单一真相源: 从 pull_hk_universe.py 产物读, 不再 inline
+            # get_stock_filter. 市值降序 = 滚动回填优先级序列, 配额上限交给
+            # 拉取循环 (跳过已落盘 + api_used 预算).
+            tickers = load_universe_tickers(
+                Path(args.universe_file), args.min_market_cap
+            )
         elif args.use_heuristic:
             print('[plan] using heuristic (stock_id sort, no market-cap filter)')
             uni = fetch_hk_universe(ctx)
@@ -519,17 +578,15 @@ def main() -> None:
                 f'first 5: {tickers[:5]}'
             )
         else:
-            # backfill: 拿全 universe (市值降序) 作为优先级序列, 配额上限交给
-            # 拉取循环 (跳过已落盘 + api_used 预算). legacy: 只取前 max_tickers.
-            select_n = FULL_UNIVERSE_CAP if args.backfill else args.max_tickers
+            # legacy (无 --backfill): 旧 get_stock_filter 路径, 取前 max_tickers.
             print(
                 f'[plan] fetching HK universe via get_stock_filter '
                 f'(market_cap >= {args.min_market_cap:.0e} HKD, descending, '
-                f'up to {select_n}) ...'
+                f'up to {args.max_tickers}) ...'
             )
             try:
                 tickers = fetch_universe_by_filter(
-                    ctx, select_n, args.min_market_cap
+                    ctx, args.max_tickers, args.min_market_cap
                 )
                 print(
                     f'[plan] universe size {len(tickers)} by market cap, '
@@ -539,7 +596,7 @@ def main() -> None:
                 print(f'⚠️  get_stock_filter failed: {e}')
                 print('[plan] fallback to heuristic')
                 uni = fetch_hk_universe(ctx)
-                tickers = select_tickers_heuristic(uni, select_n)
+                tickers = select_tickers_heuristic(uni, args.max_tickers)
                 print(
                     f'[plan] universe size {len(tickers)} 主板 (heuristic), '
                     f'first 5: {tickers[:5]}'
