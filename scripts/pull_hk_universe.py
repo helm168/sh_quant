@@ -3,14 +3,21 @@
 跟 pull_universe.py（A 股）/ pull_us_universe.py（美股）配套。三个 universe
 文件 update_daily.py 默认会自动 union，所以不用单独传参就能一起拉 OHLC。
 
-为什么 Futu get_stock_filter 而非 Tushare hk_basic
-──────────────────────────────────────────────────
-US 的 FMP company-screener 一次调用同时给 name + marketCap —— HK 的结构等价物
-就是 Futu get_stock_filter：返回 stock_code + stock_name + MARKET_VAL（可降序）。
-Tushare hk_basic 只有 name 没市值，HK 市值要走 hk_daily（10 次/天，废）。所以
-Futu screener 才是跟 US 同构的选择。get_stock_filter 不吃 request_history_kline
-1000/天 配额，但**有独立限速：Maximum 10 times / 30s**。全集 ~2600 需翻 ~14 页，
-脚本页间 sleep 3.5s 限速，整体 build 一次约 45s（一次性脚本，可接受）。
+两源 merge（跟 pull_universe.py 同构）
+──────────────────────────────────────
+pull_universe.py（A 股）= Tushare stock_basic（中文名）+ daily_basic（市值）merge。
+HK 完全同构，只是市值那源换成 Futu（HK 市值 Tushare 走 hk_daily 限 10 次/天，废）：
+
+  - Tushare hk_basic   → name（中文，如 腾讯控股）+ list_date。canonical 身份源，
+                          跟 DATA_SCHEMA / 前端 screener 期望一致。非 _vip，基础
+                          付费档可用，不吃 kline 配额。
+  - Futu get_stock_filter → market_cap（MARKET_VAL）+ board。Futu 的 stock_name
+                          是英文短名（TENCENT），仅作 Tushare 缺失时回退。
+                          有独立限速 Maximum 10 times / 30s，全集 ~2700 翻 ~14 页，
+                          脚本页间 sleep 3.5s，build 一次约 45s（可接受）。
+
+按 ts_code（00700.HK，两源格式一致）left-merge。无 token / hk_basic 失败 →
+**显眼警告**并降级用 Futu 英文名（不静默），universe 对 backfill 仍可用。
 
 为什么市值底线 + board 列而非多份文件
 ──────────────────────────────────────
@@ -35,9 +42,9 @@ board 列把 RMB 双柜台（8 字头，e.g. 80700 = 00700 腾讯的人民币柜
 输出
 ────
     data_cache/universe/cn_hk.parquet
-        列: ts_code (00700.HK), symbol (00700), name (腾讯控股),
-            market (cn_hk), exchange (HKEX), currency (HKD),
-            market_cap (亿港元), board (MAIN/GEM/RMB_COUNTER), snapshot_date
+        列: ts_code (00700.HK), symbol (00700), name (腾讯控股, Tushare 中文),
+            market (cn_hk), exchange (HKEX), currency (HKD), list_date,
+            market_cap (亿港元, Futu), board (MAIN/GEM/RMB_COUNTER), snapshot_date
 
 下一步
 ──────
@@ -50,6 +57,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import os
 import sys
 import time
 from pathlib import Path
@@ -156,6 +164,39 @@ def fetch_hk_universe(ctx: OpenQuoteContext, min_mv_hkd: float) -> pd.DataFrame:
     return df
 
 
+def fetch_tushare_hk_names() -> pd.DataFrame:
+    """Tushare hk_basic → 中文名 + list_date（canonical 身份源）。
+
+    跟 pull_universe.py 用 Tushare stock_basic 取 A 股中文名同构。best-effort：
+    无 token / 接口失败 → 返回空 df（列齐），调用方降级用 Futu 英文名 + 打**显眼**
+    警告（不静默）。hk_basic 非 _vip，基础付费档可用，不吃 history_kline 配额。
+    """
+    empty = pd.DataFrame(columns=['ts_code', 'name', 'list_date'])
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        print('  ⚠ python-dotenv 没装, 跳过中文名 overlay (名字将是 Futu 英文)')
+        return empty
+    load_dotenv(PROJECT_ROOT / '.env')
+    token = os.getenv('TUSHARE_TOKEN')
+    if not token or token == 'your_tushare_token_here':
+        print('  ⚠ TUSHARE_TOKEN 未配置, 名字将是 Futu 英文短名 (非中文)')
+        return empty
+    try:
+        import tushare as ts
+
+        ts.set_token(token)
+        pro = ts.pro_api()
+        df = pro.hk_basic(fields='ts_code,name,list_date')
+    except Exception as e:
+        print(f'  ⚠ Tushare hk_basic 失败, 名字降级英文: {type(e).__name__}: {e}')
+        return empty
+    if df is None or df.empty:
+        print('  ⚠ Tushare hk_basic 返回空, 名字降级英文')
+        return empty
+    return df[['ts_code', 'name', 'list_date']]
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description='生成港股标的池（Futu get_stock_filter）')
     ap.add_argument(
@@ -188,6 +229,19 @@ def main() -> None:
     df['board'] = df['symbol'].map(classify_board)
     df['snapshot_date'] = pd.Timestamp.today().normalize()
 
+    # 中文名 overlay: Tushare hk_basic 优先, 缺失回退 Futu 英文短名 (不静默)
+    df = df.rename(columns={'name': 'name_futu'})
+    tu = fetch_tushare_hk_names()
+    df = df.merge(tu, on='ts_code', how='left')
+    n_cn = int(df['name'].notna().sum())
+    df['name'] = df['name'].where(df['name'].notna(), df['name_futu'])
+    df = df.drop(columns=['name_futu'])
+    n_fallback = len(df) - n_cn
+    print(
+        f'  中文名 overlay: {n_cn}/{len(df)} 命中 Tushare hk_basic'
+        f'{f", {n_fallback} 只回退 Futu 英文 (RMB 柜台/新股/Tushare 缺失)" if n_fallback else ""}'
+    )
+
     keep_cols = [
         'ts_code',
         'symbol',
@@ -195,6 +249,7 @@ def main() -> None:
         'market',
         'exchange',
         'currency',
+        'list_date',
         'market_cap',
         'board',
         'snapshot_date',
@@ -205,7 +260,11 @@ def main() -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out.to_parquet(out_path, index=False)
 
-    print(f'\n✓ {len(out)} 只标的写入 {out_path.relative_to(PROJECT_ROOT)}')
+    try:
+        shown = out_path.relative_to(PROJECT_ROOT)
+    except ValueError:
+        shown = out_path
+    print(f'\n✓ {len(out)} 只标的写入 {shown}')
 
     print('\n池子组成:')
     print(' 按 board:')
