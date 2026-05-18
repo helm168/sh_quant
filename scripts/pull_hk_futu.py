@@ -66,12 +66,11 @@
 from __future__ import annotations
 
 import argparse
-import os
+import contextlib
 import sys
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Iterable
 
 import pandas as pd
 
@@ -232,9 +231,7 @@ def get_rehab_factors(ctx: OpenQuoteContext, ts_code: str) -> pd.DataFrame:
     return df
 
 
-def attach_adj_factor(
-    kline_df: pd.DataFrame, rehab_df: pd.DataFrame
-) -> pd.DataFrame:
+def attach_adj_factor(kline_df: pd.DataFrame, rehab_df: pd.DataFrame) -> pd.DataFrame:
     """
     用 Futu 官方文档的仿射变换公式算 forward adj_factor.
 
@@ -285,9 +282,7 @@ def attach_adj_factor(
     # 文档公式: 前复权价 = close × forward_A + forward_B
     # 转 Tushare 风格 ratio (Billionaire middleware 用 close × adj / latest):
     #   adj_factor = forward_A + forward_B / close
-    merged['adj_factor'] = (
-        merged['forward_a'] + merged['forward_b'] / merged['close']
-    )
+    merged['adj_factor'] = merged['forward_a'] + merged['forward_b'] / merged['close']
 
     merged = merged.drop(columns=['_td', 'forward_a', 'forward_b'])
     merged = merged.sort_values('trade_date').reset_index(drop=True)
@@ -551,10 +546,7 @@ def main() -> None:
     try:
         ctx = OpenQuoteContext(host=HOST, port=PORT)
     except Exception as e:
-        sys.exit(
-            f'OpenQuoteContext 创建失败: {e}\n'
-            '→ OpenD 启动了吗? lsof -i :11111 看一下.'
-        )
+        sys.exit(f'OpenQuoteContext 创建失败: {e}\n→ OpenD 启动了吗? lsof -i :11111 看一下.')
 
     try:
         # ── 2. 选 tickers ──────────────────────────────────────────────────
@@ -565,18 +557,13 @@ def main() -> None:
             # 单一真相源: 从 pull_hk_universe.py 产物读, 不再 inline
             # get_stock_filter. 市值降序 = 滚动回填优先级序列, 配额上限交给
             # 拉取循环 (跳过已落盘 + api_used 预算).
-            tickers = load_universe_tickers(
-                Path(args.universe_file), args.min_market_cap
-            )
+            tickers = load_universe_tickers(Path(args.universe_file), args.min_market_cap)
         elif args.use_heuristic:
             print('[plan] using heuristic (stock_id sort, no market-cap filter)')
             uni = fetch_hk_universe(ctx)
             print(f'[plan] HK active universe size: {len(uni)}')
             tickers = select_tickers_heuristic(uni, args.max_tickers)
-            print(
-                f'[plan] selected top {len(tickers)} 主板 (by stock_id), '
-                f'first 5: {tickers[:5]}'
-            )
+            print(f'[plan] selected top {len(tickers)} 主板 (by stock_id), first 5: {tickers[:5]}')
         else:
             # legacy (无 --backfill): 旧 get_stock_filter 路径, 取前 max_tickers.
             print(
@@ -585,21 +572,15 @@ def main() -> None:
                 f'up to {args.max_tickers}) ...'
             )
             try:
-                tickers = fetch_universe_by_filter(
-                    ctx, args.max_tickers, args.min_market_cap
-                )
-                print(
-                    f'[plan] universe size {len(tickers)} by market cap, '
-                    f'first 5: {tickers[:5]}'
-                )
+                tickers = fetch_universe_by_filter(ctx, args.max_tickers, args.min_market_cap)
+                print(f'[plan] universe size {len(tickers)} by market cap, first 5: {tickers[:5]}')
             except Exception as e:
                 print(f'⚠️  get_stock_filter failed: {e}')
                 print('[plan] fallback to heuristic')
                 uni = fetch_hk_universe(ctx)
                 tickers = select_tickers_heuristic(uni, args.max_tickers)
                 print(
-                    f'[plan] universe size {len(tickers)} 主板 (heuristic), '
-                    f'first 5: {tickers[:5]}'
+                    f'[plan] universe size {len(tickers)} 主板 (heuristic), first 5: {tickers[:5]}'
                 )
 
         # backfill 模式 tickers = 全 universe, 必然 > 配额, 但循环按 api_used
@@ -612,32 +593,30 @@ def main() -> None:
 
         # ── 3. dry-run? ────────────────────────────────────────────────────
         if args.dry_run:
-            cold_since = (
-                datetime.now() - timedelta(days=COLD_LOOKBACK_DAYS)
-            ).strftime('%Y-%m-%d')
+            cold_since = (datetime.now() - timedelta(days=COLD_LOOKBACK_DAYS)).strftime('%Y-%m-%d')
             if args.backfill:
-                on_disk = [
-                    t for t in tickers if existing_last_date(t, data_dir) is not None
-                ]
-                missing = [
-                    t for t in tickers if existing_last_date(t, data_dir) is None
-                ]
+                on_disk = [t for t in tickers if existing_last_date(t, data_dir) is not None]
+                missing = [t for t in tickers if existing_last_date(t, data_dir) is None]
                 this_run = missing[: args.max_tickers]
                 print(
                     f'\n[dry-run][backfill] universe={len(tickers)} '
                     f'已落盘={len(on_disk)} 缺失={len(missing)} '
                     f'本轮预算={args.max_tickers}'
                 )
-                print(f'[dry-run][backfill] 本轮会 cold-pull {len(this_run)} 只 '
-                      f'(since={cold_since} → {today}):')
+                print(
+                    f'[dry-run][backfill] 本轮会 cold-pull {len(this_run)} 只 '
+                    f'(since={cold_since} → {today}):'
+                )
                 for t in this_run[:10]:
                     print(f'  {t}')
                 if len(this_run) > 10:
                     print(f'  ... 还有 {len(this_run) - 10} 只')
                 left = len(missing) - len(this_run)
                 if left > 0:
-                    print(f'[dry-run][backfill] 本轮后还剩 ~{left} 只未覆盖, '
-                          '次日再跑 --backfill 继续.')
+                    print(
+                        f'[dry-run][backfill] 本轮后还剩 ~{left} 只未覆盖, '
+                        '次日再跑 --backfill 继续.'
+                    )
                 else:
                     print('[dry-run][backfill] 本轮可覆盖全部缺失, 一轮滚完.')
             else:
@@ -660,10 +639,10 @@ def main() -> None:
         success = 0
         failed: list[tuple[str, str]] = []
         skipped: list[str] = []
-        on_disk = 0          # backfill: 已落盘被跳过 (0 配额)
-        api_used = 0         # 实际打 request_history_kline 的次数 (≈ 配额)
-        quota_stop = False   # backfill: 因预算用完提前停
-        scanned = 0          # 实际遍历到第几只 (backfill resume 用)
+        on_disk = 0  # backfill: 已落盘被跳过 (0 配额)
+        api_used = 0  # 实际打 request_history_kline 的次数 (≈ 配额)
+        quota_stop = False  # backfill: 因预算用完提前停
+        scanned = 0  # 实际遍历到第几只 (backfill resume 用)
         t_start = time.time()
 
         for i, ts_code in enumerate(tickers, 1):
@@ -674,30 +653,30 @@ def main() -> None:
             if args.backfill and existing_last_date(ts_code, data_dir) is not None:
                 on_disk += 1
                 if i % 200 == 0:
-                    print(f'  [{i}/{len(tickers)}] 已落盘跳过 {on_disk}, '
-                          f'本轮已拉 {api_used}/{args.max_tickers}')
+                    print(
+                        f'  [{i}/{len(tickers)}] 已落盘跳过 {on_disk}, '
+                        f'本轮已拉 {api_used}/{args.max_tickers}'
+                    )
                 continue
 
             # 决定 since: backfill 永远 cold (回填缺失的票, 忽略 --incremental)
             if args.incremental and not args.backfill:
                 last = existing_last_date(ts_code, data_dir)
                 if last is None:
-                    since = (
-                        datetime.now() - timedelta(days=COLD_LOOKBACK_DAYS)
-                    ).strftime('%Y-%m-%d')
+                    since = (datetime.now() - timedelta(days=COLD_LOOKBACK_DAYS)).strftime(
+                        '%Y-%m-%d'
+                    )
                 else:
-                    since = (
-                        datetime.strptime(last, '%Y-%m-%d') + timedelta(days=1)
-                    ).strftime('%Y-%m-%d')
+                    since = (datetime.strptime(last, '%Y-%m-%d') + timedelta(days=1)).strftime(
+                        '%Y-%m-%d'
+                    )
                 if since > today:
                     skipped.append(ts_code)
                     if i % 50 == 0 or i == len(tickers):
                         print(f'  [{i}/{len(tickers)}] ✓{success} ✗{len(failed)} ⏭{len(skipped)}')
                     continue
             else:
-                since = (
-                    datetime.now() - timedelta(days=COLD_LOOKBACK_DAYS)
-                ).strftime('%Y-%m-%d')
+                since = (datetime.now() - timedelta(days=COLD_LOOKBACK_DAYS)).strftime('%Y-%m-%d')
 
             ok, payload = pull_one(ctx, ts_code, since, today)
             api_used += 1
@@ -706,7 +685,7 @@ def main() -> None:
             else:
                 df_new = payload
                 if isinstance(df_new, pd.DataFrame) and len(df_new) > 0:
-                    rows = write_parquet(ts_code, df_new, data_dir)
+                    write_parquet(ts_code, df_new, data_dir)
                     success += 1
                 else:
                     # API ok 但空返回 (例如周末跑 incremental)
@@ -753,8 +732,7 @@ def main() -> None:
                     '次日再跑 `python scripts/pull_hk_futu.py --backfill` 续.'
                 )
             elif not quota_stop and len(failed) == 0:
-                print('\n[backfill] 全集已覆盖. cold start 完成, '
-                      '后续走 update_daily.py 日更.')
+                print('\n[backfill] 全集已覆盖. cold start 完成, 后续走 update_daily.py 日更.')
             else:
                 print(
                     f'\n[backfill] universe 扫完, 本轮失败 {len(failed)} 只无落盘, '
@@ -770,10 +748,8 @@ def main() -> None:
         if api_used > 900:
             print('⚠️  接近 1000 上限. 明天再跑前等配额重置 (UTC+8 0:00).')
     finally:
-        try:
+        with contextlib.suppress(Exception):
             ctx.close()
-        except Exception:
-            pass
 
 
 if __name__ == '__main__':

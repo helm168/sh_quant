@@ -73,6 +73,7 @@ Cron 推荐（A 股收盘后 1 小时，美股收盘后 1 小时）:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
 import sys
 import time
@@ -788,9 +789,7 @@ def _futu_snapshot_rows_to_schema(snap: pd.DataFrame) -> pd.DataFrame:
     一致). 历史复权因子由 pull_hk_futu.py --backfill 落盘, 日更只 append raw bar.
     """
     out = pd.DataFrame()
-    out['trade_date'] = pd.to_datetime(
-        pd.to_datetime(snap['update_time']).dt.strftime('%Y-%m-%d')
-    )
+    out['trade_date'] = pd.to_datetime(pd.to_datetime(snap['update_time']).dt.strftime('%Y-%m-%d'))
     out['ts_code'] = [c.split('.')[1] + '.HK' for c in snap['code']]
     out['open'] = snap['open_price'].astype(float)
     out['high'] = snap['high_price'].astype(float)
@@ -798,9 +797,7 @@ def _futu_snapshot_rows_to_schema(snap: pd.DataFrame) -> pd.DataFrame:
     out['close'] = snap['last_price'].astype(float)
     out['pre_close'] = snap['prev_close_price'].astype(float)
     out['change'] = (snap['last_price'] - snap['prev_close_price']).astype(float)
-    out['pct_chg'] = (
-        (snap['last_price'] / snap['prev_close_price'] - 1.0) * 100
-    ).astype(float)
+    out['pct_chg'] = ((snap['last_price'] / snap['prev_close_price'] - 1.0) * 100).astype(float)
     out['vol'] = snap['volume'].astype('int64')  # 港股单位=股, 与 schema 一致
     out['amount'] = snap['turnover'].astype(float)  # HKD
     out['adj_factor'] = 1.0
@@ -831,8 +828,7 @@ def _prefetch_futu_snapshot_batch(hk_tickers: list[str]) -> int:
         ctx = OpenQuoteContext(host=_FUTU_HK_HOST, port=_FUTU_HK_PORT)
     except Exception as e:
         _warn_once(
-            f'FutuOpenD 连不上 ({e}); HK 日更跳过. OpenD 起了吗? '
-            f'lsof -i :{_FUTU_HK_PORT}',
+            f'FutuOpenD 连不上 ({e}); HK 日更跳过. OpenD 起了吗? lsof -i :{_FUTU_HK_PORT}',
             key='futu_opend_down',
         )
         return 0
@@ -852,10 +848,8 @@ def _prefetch_futu_snapshot_batch(hk_tickers: list[str]) -> int:
                 rows.append(_futu_snapshot_rows_to_schema(data))
             time.sleep(0.5)  # Futu snapshot 限速 ~60/30s, chunk 间留 buffer
     finally:
-        try:
+        with contextlib.suppress(Exception):
             ctx.close()
-        except Exception:
-            pass
 
     if not rows:
         return 0
@@ -1359,11 +1353,7 @@ def main() -> int:
     us_tickers = [t for t in tickers if parse_market(t) == 'us']
     us_count = len(us_tickers)
     US_BATCH_MIN_TICKERS = 20
-    if (
-        us_count >= US_BATCH_MIN_TICKERS
-        and not args.force
-        and not args.verify
-    ):
+    if us_count >= US_BATCH_MIN_TICKERS and not args.force and not args.verify:
         today_norm = pd.Timestamp.today().normalize()
         last_td_pre = _last_trading_day_approx(today_norm)
         n_stale_us = 0
@@ -1548,15 +1538,17 @@ def main() -> int:
     # ticker (港股/美股) 在 update_all 里被过滤掉, 这边不用区分.
     n_failed_ohlcv = sum(1 for r in results if r['status'] in ('error', 'empty'))
     all_failed = n_failed_ohlcv == len(results) and len(results) > 0
-    db_stats = None
     if args.skip_daily_basic:
         print('  [daily_basic] 已 --skip-daily-basic, 跳过估值更新')
     elif all_failed:
-        print(f'  [daily_basic] OHLCV {n_failed_ohlcv}/{len(results)} 全失败, 跳过 daily_basic 防止浪费 API')
+        print(
+            f'  [daily_basic] OHLCV {n_failed_ohlcv}/{len(results)} 全失败, 跳过 daily_basic 防止浪费 API'
+        )
     else:
         try:
             from pull_daily_basic import update_all as _update_daily_basic
-            db_stats = _update_daily_basic(
+
+            _update_daily_basic(
                 tickers,
                 years=3,  # 首次全量拉 3 年, 已有数据走增量
                 workers=args.workers,

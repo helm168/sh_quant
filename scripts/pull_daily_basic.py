@@ -27,6 +27,7 @@ pro.daily_basic   → 估值 (pe/pe_ttm/pb/ps/ps_ttm/dv/total_mv/circ_mv) ← da
 - per-ticker:       ~6min (5500 calls × 5 worker × 0.3s)
 batch 启用条件: 非 --force, ticker 数 ≥ BATCH_MIN, 至少一只 ticker 缺今天数据.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -36,7 +37,6 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional
 
 import pandas as pd
 
@@ -101,12 +101,12 @@ def _get_tushare_pro():
 #
 # fetch_one 进来时若请求"单日 = batch_date", 直接走 cache, 不调网络.
 _BATCH_CACHE: dict[str, pd.DataFrame] = {}
-_BATCH_DATE: Optional[pd.Timestamp] = None
+_BATCH_DATE: pd.Timestamp | None = None
 _BATCH_HIT_COUNT = 0
 _BATCH_MISS_COUNT = 0
 
 
-def _latest_trade_date_via_daily_basic(today: pd.Timestamp) -> Optional[str]:
+def _latest_trade_date_via_daily_basic(today: pd.Timestamp) -> str | None:
     """对最近 5 个日历日各试 pro.daily_basic, 第一个返非空就是最近交易日."""
     pro = _get_tushare_pro()
     for delta in range(5):
@@ -161,7 +161,7 @@ def _prefetch_daily_basic_batch(today: pd.Timestamp) -> int:
 
 
 # ─── 增量更新 per-ticker ────────────────────────────────────────────────
-def _existing_max_date(ts_code: str) -> Optional[pd.Timestamp]:
+def _existing_max_date(ts_code: str) -> pd.Timestamp | None:
     """读已有 parquet 拿 max(trade_date). 文件不存在 / 空 / 损坏 → None."""
     fp = CACHE_DIR_DB / f'{ts_code}.parquet'
     if not fp.exists():
@@ -175,7 +175,7 @@ def _existing_max_date(ts_code: str) -> Optional[pd.Timestamp]:
         return None
 
 
-def fetch_one(ts_code: str, start: str, end: str) -> Optional[pd.DataFrame]:
+def fetch_one(ts_code: str, start: str, end: str) -> pd.DataFrame | None:
     """拉单只股票的 daily_basic.
 
     Fast path: 请求范围 [start, end] 收敛到 batch_date 单天且命中缓存 → 直接返
@@ -306,10 +306,7 @@ def update_all(
     t0 = time.time()
     results: list[dict] = []
     with ThreadPoolExecutor(max_workers=workers) as ex:
-        futures = {
-            ex.submit(update_one, t, default_start, end_str, force): t
-            for t in cn_tickers
-        }
+        futures = {ex.submit(update_one, t, default_start, end_str, force): t for t in cn_tickers}
         fresh_count = 0
         width = len(str(len(cn_tickers)))
         for i, fut in enumerate(as_completed(futures), 1):
@@ -333,9 +330,9 @@ def update_all(
             )
             extra = ''
             if r['status'] == 'ok':
-                extra = f"+{r.get('rows_added', 0):>4} 行 [{r.get('mode', '')}]"
+                extra = f'+{r.get("rows_added", 0):>4} 行 [{r.get("mode", "")}]'
             elif r['status'] == 'error':
-                extra = f"!! {r.get('error', '')[:80]}"
+                extra = f'!! {r.get("error", "")[:80]}'
             print(f'  [{i:>{width}}/{len(cn_tickers)}] {tag} {t:<14} {extra}', flush=True)
 
     elapsed = time.time() - t0
@@ -366,11 +363,15 @@ def update_all(
     if err > 0 and not verbose:
         print('\n  错误样例 (前 3):')
         for r in [x for x in results if x['status'] == 'error'][:3]:
-            print(f"    - {r['ticker']}: {r.get('error', '')}")
+            print(f'    - {r["ticker"]}: {r.get("error", "")}')
 
     return {
-        'ok': ok, 'fresh': fresh, 'empty': empty, 'error': err,
-        'rows_added': total_rows, 'elapsed_s': elapsed,
+        'ok': ok,
+        'fresh': fresh,
+        'empty': empty,
+        'error': err,
+        'rows_added': total_rows,
+        'elapsed_s': elapsed,
     }
 
 
@@ -379,7 +380,7 @@ def load_tickers(args) -> list[str]:
     if args.tickers:
         return [t.strip().upper() for t in args.tickers.split(',') if t.strip()]
     if args.file:
-        with open(args.file, 'r', encoding='utf-8') as f:
+        with open(args.file, encoding='utf-8') as f:
             return [line.strip().upper() for line in f if line.strip() and not line.startswith('#')]
 
     universe_dir = PROJECT_ROOT / 'data_cache' / 'universe'

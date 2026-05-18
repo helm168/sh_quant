@@ -123,21 +123,23 @@ def compare(ts_code: str) -> None:
 
     if len(jumps_sq) > 0 or len(jumps_yh) > 0:
         print('\n  ── 除权日对比 ──')
-        all_jumps = pd.concat([
-            jumps_sq[['trade_date', 'close', 'adj_factor_normalized', 'adj_jump_sq']],
-            jumps_yh[['trade_date', 'close_yahoo', 'adj_factor_yahoo', 'adj_jump_yh']],
-        ], axis=1).drop_duplicates(subset=['trade_date'])
-
-        cmp = merged[
-            (merged['adj_jump_sq'] > 0.001) | (merged['adj_jump_yh'] > 0.001)
-        ][['trade_date', 'close', 'adj_factor_normalized', 'adj_factor_yahoo',
-           'diff_pct']]
+        cmp = merged[(merged['adj_jump_sq'] > 0.001) | (merged['adj_jump_yh'] > 0.001)][
+            ['trade_date', 'close', 'adj_factor_normalized', 'adj_factor_yahoo', 'diff_pct']
+        ]
         print(cmp.to_string(index=False))
 
     # 打印最近 5 行做 sanity check
     print('\n  ── 最近 5 行 ──')
-    tail = merged[['trade_date', 'close', 'close_yahoo',
-                   'adj_factor_normalized', 'adj_factor_yahoo', 'diff_pct']].tail(5)
+    tail = merged[
+        [
+            'trade_date',
+            'close',
+            'close_yahoo',
+            'adj_factor_normalized',
+            'adj_factor_yahoo',
+            'diff_pct',
+        ]
+    ].tail(5)
     print(tail.to_string(index=False))
 
     # 结论

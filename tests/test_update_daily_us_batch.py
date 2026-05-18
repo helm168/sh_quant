@@ -159,8 +159,8 @@ def test_prefetch_fills_cache(ud, monkeypatch):
     aapl = ud._POLY_BATCH_CACHE['AAPL.US']
     assert len(aapl) == 1
     assert aapl.iloc[0]['close'] == 200.0
-    assert ud._POLY_BATCH_MIN_DATE == pd.Timestamp('2025-05-16')
-    assert ud._POLY_BATCH_MAX_DATE == pd.Timestamp('2025-05-16')
+    assert pd.Timestamp('2025-05-16') == ud._POLY_BATCH_MIN_DATE
+    assert pd.Timestamp('2025-05-16') == ud._POLY_BATCH_MAX_DATE
 
 
 def test_prefetch_lookback_5_calls_5_times(ud, monkeypatch):

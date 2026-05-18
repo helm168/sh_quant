@@ -18,7 +18,7 @@ packages = ["utils", "config"]
 [tool.ruff]
 line-length = 100
 target-version = "py310"
-extend-exclude = ["data_cache", "outputs", "notebooks/*.ipynb"]
+extend-exclude = [".claude", "data_cache", "outputs", "notebooks/*.ipynb"]
 
 [tool.ruff.lint]
 # 精选的规则集，不开太多免得噪音：
