@@ -132,6 +132,23 @@ _BATCH_HIT_COUNT = 0
 _BATCH_MISS_COUNT = 0
 _VERIFY_MODE = False  # --verify N 设置时为 True, fast-path 强制 skip
 
+# ---------- Polygon Grouped Daily 批量预拉 (US fast-path) ----------
+# 设计同 _BATCH_CACHE: daily cron 的本质 = append 最近 N 个交易日的 bar.
+# Polygon Grouped Daily 一次 API call 拿当天全 US ~8000 行 OHLCV, 替代
+# 2076 只 ticker × 1 call (FMP per-ticker) 的 ~20 min.
+#
+# 范围: 最近 lookback_days 个非周末交易日, 每天 1 个 call.
+#   - --lookback 1  → 1 call  (默认日 cron)
+#   - --lookback 7  → 5 call  (catch-up, 7 个日历日去掉 2 个周末)
+#   美股节假日由 Polygon 自己处理: 返回 results=[] 或 resultsCount=0, 跳过.
+#
+# Polygon Stocks Starter 限速 5 calls/min, 一次顶多 5 call 不会撞限.
+_POLY_BATCH_CACHE: dict[str, pd.DataFrame] = {}  # ts_code -> mini DataFrame 全窗口
+_POLY_BATCH_MIN_DATE: pd.Timestamp | None = None
+_POLY_BATCH_MAX_DATE: pd.Timestamp | None = None
+_POLY_BATCH_HIT_COUNT = 0
+_POLY_BATCH_MISS_COUNT = 0
+
 # ---------- 港股 Futu snapshot 批量 ----------
 # 日更场景: 每只 HK 股 append 最近交易日一根 bar. get_market_snapshot 无配额
 # (≠ request_history_kline 1000/天), 一次 ≤400 码, ~2700/400≈7 call 拿全市场.
@@ -515,6 +532,197 @@ def _fetch_us_via_yfinance(ts_code: str, start: str, end: str) -> pd.DataFrame |
     return df[cols]
 
 
+def _recent_us_trading_days(today: pd.Timestamp, lookback_days: int) -> list[pd.Timestamp]:
+    """从 today 倒推, 凑出最近 lookback_days 个非周末的日期 (粗略=美股交易日).
+
+    简化策略: pandas 5-day rolling 把周末过滤掉就够用. 美股节假日 (MLK / Good
+    Friday / Memorial Day 等) 由 Polygon 自己处理: 那天 Grouped Daily 返回
+    `resultsCount=0`, 我们的 batch 拉到空就跳过这天, 不污染缓存.
+
+    edge case: today 是周日时, lookback_days=1 → 返回 [Friday] 一天.
+
+    返回从早到晚排序的 Timestamp 列表 (空列表 = lookback_days <= 0).
+    """
+    if lookback_days <= 0:
+        return []
+    today = today.normalize()
+    days: list[pd.Timestamp] = []
+    # 至多回溯 lookback_days*2 个日历日 (足够装 lookback_days 个工作日 + 周末)
+    cursor = today
+    safety_max = lookback_days * 3 + 5
+    while len(days) < lookback_days and safety_max > 0:
+        if cursor.weekday() < 5:  # Mon-Fri
+            days.append(cursor)
+        cursor = cursor - pd.Timedelta(days=1)
+        safety_max -= 1
+    return sorted(days)
+
+
+def _polygon_grouped_to_rows(results: list[dict]) -> list[dict]:
+    """把 Polygon Grouped Daily `results` (一天全市场) → sh_quant schema 行 list.
+
+    schema 字段:
+        T → ticker (转 ts_code 加 .US, 同时 dot→dash 转换 BRK.B → BRK-B.US)
+        v → vol (股数, 直接用)
+        o/h/l/c → OHLC
+        t → trade_date (ms since epoch → normalize 日期)
+        vw → 不用 (均价)
+
+    amount = close * vol (Polygon 没给 turnover, 用 close*vol 估算, 跟
+    _fetch_us_via_polygon 单 ticker 接口里 amount 算法保持一致).
+    pre_close / change / pct_chg 在本函数不算 (跨天数据, 由 update_one 的
+    merge 自动得到 — 老 parquet 接上来后 .shift(1) 自然链上).
+    """
+    rows: list[dict] = []
+    for d in results:
+        tkr = d.get('T')
+        if not tkr:
+            continue
+        # BRK.B (Polygon) → BRK-B.US (sh_quant); 普通 NVDA → NVDA.US
+        ts_code = f'{tkr.replace(".", "-")}.US'
+        close = d.get('c', 0) or 0
+        vol = d.get('v', 0) or 0
+        rows.append(
+            {
+                'trade_date': pd.to_datetime(d['t'], unit='ms').normalize(),
+                'ts_code': ts_code,
+                'open': d.get('o'),
+                'high': d.get('h'),
+                'low': d.get('l'),
+                'close': close,
+                'vol': vol,
+                'amount': close * vol if close and vol else 0,
+                'adj_factor': 1.0,  # 美股没有除权概念, 固定 1.0
+            }
+        )
+    return rows
+
+
+def _prefetch_polygon_us_batch(today: pd.Timestamp, lookback_days: int) -> int:
+    """Polygon Grouped Daily 批量预拉最近 lookback_days 个交易日的全 US 数据.
+
+    每天 1 个 API call (`/v2/aggs/grouped/locale/us/market/stocks/{date}`),
+    一次拿当天 ~8000 行 OHLCV. 仿 `_prefetch_tushare_batch` 的模式.
+
+    填 `_POLY_BATCH_CACHE: dict[ts_code, mini_df]`, 每个 ts_code 的 mini_df
+    含窗口内所有交易日的行 (按 trade_date 升序). update_one fast-path 从
+    这个 dict 直接 slice.
+
+    返回 cache 里 distinct ts_code 数; 任何失败 (无 key / API 全挂 / 空结果)
+    返回 0, 主流程降级到 per-ticker FMP/Polygon.
+    """
+    global _POLY_BATCH_CACHE, _POLY_BATCH_MIN_DATE, _POLY_BATCH_MAX_DATE
+
+    api_key = os.getenv('POLYGON_API_KEY')
+    if not api_key:
+        _warn_once(
+            'POLYGON_API_KEY 未配置, US batch 跳过, 走 per-ticker FMP/Polygon.',
+            key='polygon_batch_no_key',
+        )
+        return 0
+    try:
+        import requests
+    except ImportError:
+        return 0
+
+    days = _recent_us_trading_days(today, lookback_days)
+    if not days:
+        return 0
+
+    all_rows: list[dict] = []
+    successful_days: list[pd.Timestamp] = []
+    for day in days:
+        date_str = day.strftime('%Y-%m-%d')
+        url = (
+            f'https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/'
+            f'{date_str}?adjusted=true&apiKey={api_key}'
+        )
+        t_call = time.time()
+        try:
+            r = requests.get(url, timeout=30)
+        except Exception as e:
+            print(f'  [us-batch] {date_str} 网络错误: {e}', flush=True)
+            continue
+        if r.status_code != 200:
+            print(
+                f'  [us-batch] {date_str} HTTP {r.status_code}: {r.text[:160]}',
+                flush=True,
+            )
+            continue
+        try:
+            payload = r.json()
+        except Exception as e:
+            print(f'  [us-batch] {date_str} JSON 解析失败: {e}', flush=True)
+            continue
+        results = payload.get('results') or []
+        if not results:
+            # 节假日 / 周末 / 未来日 → 没数据, 跳过
+            print(f'  [us-batch] {date_str} 无数据 (节假日?), 跳过', flush=True)
+            continue
+        rows = _polygon_grouped_to_rows(results)
+        all_rows.extend(rows)
+        successful_days.append(day)
+        print(
+            f'  [us-batch] {date_str}: {len(rows)} 行, {time.time() - t_call:.1f}s',
+            flush=True,
+        )
+
+    if not all_rows:
+        return 0
+
+    big = pd.DataFrame(all_rows)
+    by_code: dict[str, pd.DataFrame] = {}
+    for code, sub in big.groupby('ts_code'):
+        by_code[str(code)] = sub.sort_values('trade_date').reset_index(drop=True)
+
+    _POLY_BATCH_CACHE = by_code
+    _POLY_BATCH_MIN_DATE = min(successful_days)
+    _POLY_BATCH_MAX_DATE = max(successful_days)
+    return len(by_code)
+
+
+def _fetch_us_via_polygon_batch(ts_code: str, start: str, end: str) -> pd.DataFrame | None:
+    """从 `_POLY_BATCH_CACHE` 取这只 US 股的窗口内全部行 (fast-path).
+
+    严格语义 (同 _fetch_a_share_via_tushare): 必须 batch 范围 ⊇ 请求范围
+    [start, end] 才返回切片, 否则返 None fall-through 到 per-ticker. 这避免
+    "batch 只有今天 + ticker 缺多天 → merge 后中间留空洞" 的 bug.
+    `--verify` 模式下也跳过 (源头校验时 per-ticker 重拉).
+    """
+    global _POLY_BATCH_HIT_COUNT, _POLY_BATCH_MISS_COUNT
+
+    if _VERIFY_MODE:
+        return None
+    if _POLY_BATCH_MIN_DATE is None or _POLY_BATCH_MAX_DATE is None:
+        return None
+    try:
+        start_dt = pd.Timestamp(start)
+        end_dt = pd.Timestamp(end)
+    except Exception:
+        return None
+    if not (start_dt >= _POLY_BATCH_MIN_DATE and end_dt <= _POLY_BATCH_MAX_DATE):
+        return None
+    cached = _POLY_BATCH_CACHE.get(ts_code)
+    if cached is None or cached.empty:
+        # ts_code 落在批量窗口但 batch 里没它 (新上市/退市/dot-ticker 形式不同)
+        _POLY_BATCH_MISS_COUNT += 1
+        return None
+    mask = (cached['trade_date'] >= start_dt) & (cached['trade_date'] <= end_dt)
+    sliced = cached.loc[mask].copy()
+    if sliced.empty:
+        _POLY_BATCH_MISS_COUNT += 1
+        return None
+    # pre_close / change / pct_chg 在 mini_df 内自洽 (跨日 shift), 老 parquet
+    # 接上来后 update_one 的 drop_duplicates(keep='last') 会保 batch 这边的值,
+    # 第一行 pre_close 是 NaN — 由 update_one merge 老 parquet 的尾行补全.
+    sliced = sliced.sort_values('trade_date').reset_index(drop=True)
+    sliced['pre_close'] = sliced['close'].shift(1)
+    sliced['change'] = sliced['close'] - sliced['pre_close']
+    sliced['pct_chg'] = (sliced['change'] / sliced['pre_close']) * 100
+    _POLY_BATCH_HIT_COUNT += 1
+    return sliced
+
+
 def _fetch_us_via_polygon(ts_code: str, start: str, end: str) -> pd.DataFrame | None:
     """美股走 Polygon（美股 OHLC 主源）。"""
     api_key = os.getenv('POLYGON_API_KEY')
@@ -708,6 +916,10 @@ def fetch_one(ts_code: str, start: str, end: str) -> tuple[pd.DataFrame | None, 
         return None, 'none'
 
     if market == 'us':
+        # Fast-path: Polygon Grouped Daily 批量缓存 (跳过 per-ticker 网络)
+        df = _fetch_us_via_polygon_batch(ts_code, start, end)
+        if df is not None and len(df) > 0:
+            return df, 'polygon_batch'
         # FMP 主：付费档给 30+ 年历史，历史深度对齐 A 股
         df = _fetch_us_via_fmp(ts_code, start, end)
         if df is not None and len(df) > 0:
@@ -1140,6 +1352,68 @@ def main() -> int:
         )
         print('-' * 70)
 
+    # 美股 Polygon Grouped Daily 批量预拉 (日更 fast-path).
+    #   一天 1 个 API call 拿全 US ~8000 行, 替代 2076 只 × 1 call (FMP) 的 ~20 min.
+    #   `--lookback N` 决定拉几天 (去掉周末). --force/--verify 时跳过.
+    #   预扫: 全 fresh 时也跳过, 避免无意义 batch.
+    us_tickers = [t for t in tickers if parse_market(t) == 'us']
+    us_count = len(us_tickers)
+    US_BATCH_MIN_TICKERS = 20
+    if (
+        us_count >= US_BATCH_MIN_TICKERS
+        and not args.force
+        and not args.verify
+    ):
+        today_norm = pd.Timestamp.today().normalize()
+        last_td_pre = _last_trading_day_approx(today_norm)
+        n_stale_us = 0
+        for t in us_tickers:
+            fp = cache_dir / f'{t}.parquet'
+            if not fp.exists():
+                n_stale_us += 1
+                continue
+            peek = _peek_last_date_fast(fp)
+            if peek is None or peek < last_td_pre:
+                n_stale_us += 1
+        if n_stale_us == 0:
+            print(
+                f'  [us-batch] 所有 {us_count} 只 US ticker 已 fresh '
+                f'(last_td={last_td_pre.strftime("%Y-%m-%d")}), 跳过 batch'
+            )
+            print('-' * 70)
+        else:
+            print(
+                f'  [us-batch] {n_stale_us}/{us_count} US ticker 待更新, '
+                f'启动 Polygon Grouped Daily 预拉 (lookback={args.lookback})'
+            )
+            t_pre = time.time()
+            n_cached = _prefetch_polygon_us_batch(today_norm, args.lookback)
+            if n_cached and _POLY_BATCH_MIN_DATE is not None:
+                print(
+                    f'  [us-batch] Polygon 预拉 {n_cached} 只 US 股 '
+                    f'[{_POLY_BATCH_MIN_DATE.strftime("%Y-%m-%d")}, '
+                    f'{_POLY_BATCH_MAX_DATE.strftime("%Y-%m-%d")}], '
+                    f'用时 {time.time() - t_pre:.1f}s'
+                )
+            else:
+                print(
+                    '  [us-batch] Polygon 预拉未启用 (无 key / 全空), '
+                    '走原 per-ticker FMP/Polygon 路径'
+                )
+            print('-' * 70)
+    elif us_count and (args.force or args.verify):
+        print(
+            f'  [us-batch] {us_count} 只 US ticker, --force/--verify 下跳过 batch '
+            '(走 per-ticker FMP 全量重拉)'
+        )
+        print('-' * 70)
+    elif us_count and us_count < US_BATCH_MIN_TICKERS:
+        print(
+            f'  [us-batch] US ticker {us_count} < {US_BATCH_MIN_TICKERS}, '
+            '跳过 batch (小批次直接 per-ticker)'
+        )
+        print('-' * 70)
+
     # 港股 Futu snapshot 批量预拉 (日更专用, 无 history_kline 配额).
     #   --force / --verify: HK 没有 per-ticker 慢路径 (会爆配额), snapshot 也跳过
     #     → HK 标 'hk_no_snapshot'/'empty'. 想补 HK 历史用 pull_hk_futu.py --backfill.
@@ -1248,6 +1522,13 @@ def main() -> int:
         print(
             f'  [batch] Tushare cache hit: {_BATCH_HIT_COUNT}/{total} ({pct}%), '
             f'miss (fall-through to per-ticker): {_BATCH_MISS_COUNT}'
+        )
+    if _POLY_BATCH_HIT_COUNT or _POLY_BATCH_MISS_COUNT:
+        total = _POLY_BATCH_HIT_COUNT + _POLY_BATCH_MISS_COUNT
+        pct = 100 * _POLY_BATCH_HIT_COUNT // max(total, 1)
+        print(
+            f'  [us-batch] Polygon cache hit: {_POLY_BATCH_HIT_COUNT}/{total} ({pct}%), '
+            f'miss (fall-through to per-ticker): {_POLY_BATCH_MISS_COUNT}'
         )
 
     # 真正"失败/空"：只看 empty 和 error，不算 fresh/unchanged（它们是成功的）
