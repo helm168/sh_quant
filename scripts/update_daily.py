@@ -811,7 +811,7 @@ def update_one(ts_code: str, lookback_days: int, cache_dir: Path, force: bool) -
     fp = cache_dir / f'{ts_code}.parquet'
     today = pd.Timestamp.today().normalize()
     last_td = _last_trading_day_approx(today)
-    end = today.strftime('%Y-%m-%d')
+    end = last_td.strftime('%Y-%m-%d')
 
     # 快速 fresh 检查：只读 metadata，不读数据
     peek_last = None
@@ -864,7 +864,7 @@ def update_one(ts_code: str, lookback_days: int, cache_dir: Path, force: bool) -
     if force:
         start = '2015-01-01'
     else:
-        start_dt = today - pd.Timedelta(days=max(lookback_days - 1, 0))
+        start_dt = last_td - pd.Timedelta(days=max(lookback_days - 1, 0))
         start = start_dt.strftime('%Y-%m-%d')
 
     # 拉
