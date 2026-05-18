@@ -99,6 +99,10 @@ SAFE_QUOTA_BUDGET = 800
 # 受 min_market_cap 过滤 + get_stock_filter last_page 自然收敛.
 FULL_UNIVERSE_CAP = 5000
 
+# get_stock_filter 限速: 富途文档 "Maximum 10 times per 30 seconds" = 1 次/3s.
+# 翻页拿全 universe (~14 页) 必须页间限速, 否则 begin>=2000 处必报 high-frequency.
+STOCK_FILTER_SLEEP_SEC = 3.5
+
 # 数据落盘位置: 跟 DATA_SCHEMA.md §1 一致, ~/.market_data/stocks/
 DEFAULT_DATA_DIR = Path.home() / '.market_data' / 'stocks'
 UNIVERSE_DIR = Path.home() / '.market_data' / 'universe'
@@ -374,7 +378,8 @@ def fetch_universe_by_filter(
     用 Futu get_stock_filter 拿"市值 >= X + 按市值降序" 的 ticker 列表.
 
     比 get_stock_basicinfo + 启发式排序准: 直接拿到流动性 / 规模意义上的 HK 头部
-    股票. get_stock_filter 单独配额池 (远超 history_kline 1000/天 限制), 安全.
+    股票. get_stock_filter 不吃 history_kline 1000/天 配额, 但**有独立限速**:
+    Maximum 10 times / 30s. 翻页拿全集时页间 sleep STOCK_FILTER_SLEEP_SEC.
 
     分页: Futu 单次返 ≤ 200, 翻页 begin=0,200,400... 直到拿满 max_n.
 
@@ -415,6 +420,7 @@ def fetch_universe_by_filter(
         if last_page:
             break
         begin += page_size
+        time.sleep(STOCK_FILTER_SLEEP_SEC)  # 限速: 10 次/30s
 
     return tickers
 

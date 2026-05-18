@@ -6,10 +6,11 @@
 为什么 Futu get_stock_filter 而非 Tushare hk_basic
 ──────────────────────────────────────────────────
 US 的 FMP company-screener 一次调用同时给 name + marketCap —— HK 的结构等价物
-就是 Futu get_stock_filter：一次无配额调用返回 stock_code + stock_name +
-MARKET_VAL（可降序）。Tushare hk_basic 只有 name 没市值，HK 市值要走 hk_daily
-（10 次/天，废）。所以 Futu screener 才是跟 US 同构的选择。
-get_stock_filter 不吃 request_history_kline 1000/天 配额（独立配额池）。
+就是 Futu get_stock_filter：返回 stock_code + stock_name + MARKET_VAL（可降序）。
+Tushare hk_basic 只有 name 没市值，HK 市值要走 hk_daily（10 次/天，废）。所以
+Futu screener 才是跟 US 同构的选择。get_stock_filter 不吃 request_history_kline
+1000/天 配额，但**有独立限速：Maximum 10 times / 30s**。全集 ~2600 需翻 ~14 页，
+脚本页间 sleep 3.5s 限速，整体 build 一次约 45s（一次性脚本，可接受）。
 
 为什么市值底线 + board 列而非多份文件
 ──────────────────────────────────────
@@ -50,6 +51,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import sys
+import time
 from pathlib import Path
 
 import pandas as pd
@@ -77,6 +79,9 @@ PORT = 11111
 PAGE_SIZE = 200
 # 全 HK universe ~2600, 给足翻页余量防死循环
 MAX_PAGES = 60
+# get_stock_filter 限速: 富途 "Maximum 10 times per 30 seconds" = 1 次/3s.
+# 翻页拿全集必须页间限速, 否则 begin>=2000 处必报 high-frequency.
+STOCK_FILTER_SLEEP_SEC = 3.5
 
 
 def classify_board(symbol: str) -> str:
@@ -139,6 +144,7 @@ def fetch_hk_universe(ctx: OpenQuoteContext, min_mv_hkd: float) -> pd.DataFrame:
         if last_page:
             break
         begin += PAGE_SIZE
+        time.sleep(STOCK_FILTER_SLEEP_SEC)  # 限速: 10 次/30s
 
     if not rows:
         sys.exit('get_stock_filter 返回空。检查 OpenD 是否登录 + HK Lv1 是否开通。')
