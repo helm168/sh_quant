@@ -17,16 +17,19 @@ A 股 (.SH/.SZ/.BJ):
     FMP /stable/income-statement / balance-sheet-statement / cash-flow-statement / key-metrics
     （付费档 US 全套，300 calls/min，每只股票 4 次调用）
 港股 (.HK):
-    暂未实现
+    不在本脚本 —— 见 scripts/pull_hk_financials.py。
+    Futu get_stock_filter 是全市场批量接口，与本脚本的「每 ticker 一线程」
+    模型不兼容，独立成脚本。产物落同一 data_cache/financials/，schema 一致。
 
-统一 schema（A 股 + 美股都对齐到这套字段，便于跨市场研究）
+统一 schema（A 股 + 美股 + 港股都对齐到这套字段，便于跨市场研究）
 ────────────────────────────────────────────────────
 索引层:
-    ann_date          公告日期
-    end_date          报告期末 (Q1/Q2/Q3/Q4 末日)
-    period            'Q1' / 'Q2' / 'Q3' / 'Q4'（'Q4' = 年报）
-    fiscal_year       会计年度
-    currency          'CNY' / 'USD'
+    ann_date          公告日期（港股无报告期源 → 存 as_of 运行日）
+    end_date          报告期末 (Q1/Q2/Q3/Q4 末日；港股 Futu 不返报告期 → NaT)
+    period            A 股/美股 'Q1'-'Q4'（'Q4'=年报）；港股半年报制
+                      'FY'（年报）/ 'H1'（中期）—— Futu 仅给最新 FY+H1 snapshot
+    fiscal_year       会计年度（港股不可知 → <NA>）
+    currency          'CNY' / 'USD'；港股报告币种 Futu 不返 → None
 
 利润表:
     revenue           营业收入
@@ -473,7 +476,8 @@ def fetch_one(ts_code: str, fmp_key: str | None) -> tuple[pd.DataFrame | None, s
         df = fetch_us_financials(ts_code, fmp_key)
         return df, 'fmp'
     if market == 'cn_hk':
-        return None, 'hk_not_implemented'
+        # 港股走独立脚本（Futu 全市场批量，与本脚本逐 ticker 模型不兼容）
+        return None, 'hk_use_pull_hk_financials'
     return None, f'unknown_market({ts_code})'
 
 
@@ -557,6 +561,13 @@ def main() -> int:
 
     if not tickers:
         sys.exit('没有 ticker 可拉，先跑 pull_universe.py / pull_us_universe.py')
+
+    n_hk = sum(1 for t in tickers if parse_market(t) == 'cn_hk')
+    if n_hk:
+        print(f'⚠️  {n_hk} 只港股本脚本不处理 → 跑 python scripts/pull_hk_financials.py')
+        tickers = [t for t in tickers if parse_market(t) != 'cn_hk']
+        if not tickers:
+            sys.exit('只剩港股，本脚本无事可做。')
 
     print(f'拉 {len(tickers)} 只股票财务数据 → {CACHE_DIR_FIN.relative_to(PROJECT_ROOT)}/')
     print(f'并发 {args.workers}, force={args.force}, market={args.market or "all"}')
