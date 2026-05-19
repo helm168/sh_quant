@@ -1,0 +1,219 @@
+# sh_quant 核心关切点（Core KPI）库
+#
+# 思路：每只关注的票，真正的领先信号几乎都长在产业链里，不在它自己的报表上
+#   （闪迪看 NAND 合约价，台积电看月营收，宁德看碳酸锂，牧原看能繁母猪）。
+#   这些指标"在预期通道里" = 景气还在，不用等季报。本文件是这套关切点的
+#   single source of truth（研究侧），消费/展示在 Billionaire。
+#
+# 编辑约定：
+#   - 顶层 kpis: 映射  kpi_id -> 定义。kpi_id 用 snake_case，全局唯一。
+#   - 一个 KPI 可关联多只票（行业/供应链共享指标很常见），tickers 写列表。
+#   - A 股 ticker 用带交易所后缀的 ts_code（600519.SH），和 themes.yaml 同源，
+#     方便两份配置组合；境外标的用代码或名（TSM / 2330.TW / SNDK / 美光）。
+#   - source.kind 决定 pull_kpi 能不能自动抓：
+#       api    有结构化接口（如 Tushare）
+#       url    要爬公开网页，能做但脆
+#       manual 付费墙 / 只在研报 PDF / 公告里，人工填，不自动抓
+#     ——别为了好看把 manual 写成 url，景气系统的价值在于诚实。
+#   - polarity 是"对这只票而言"的方向：碳酸锂对宁德是成本(lower)，对锂矿是
+#     收入(higher)；in_range 用于周期反向指标（能繁母猪高=未来猪价跌）。
+#     方向有歧义时，按 tickers 里的主导票定，并在 thesis 里写清楚。
+#   - expected 是后续算景气徽章（绿/黄/红）用的参考区间，先留空也行。
+#
+# 注意：静态的"卡位度★/独苗"不放这里——那是定性 tag，归 themes.yaml 的
+#   subtrack 元数据；本文件只放"会随时间变、能判断景气是否还在"的动态序列。
+#
+# 数据拉取（A 类先做，C 类靠 last_as_of 显示陈旧度）：
+#   python scripts/pull_kpi.py        # 下一步实现
+#
+# 查询接口：utils/core_kpi.py（对标 utils/themes.py）
+
+kpis:
+
+  # ============ 行业 / 供应链共享 KPI ============
+
+  nand_contract_512gb:
+    name: NAND TLC 512Gb 合约价
+    tickers: [SNDK, 美光]
+    category: supply_chain
+    cadence: weekly
+    polarity: higher_is_better
+    unit: USD
+    expected: {baseline: 3.2, lo: 2.8}
+    source: {kind: manual, ref: 'TrendForce/集邦 周报（付费），人工填'}
+    thesis: NAND 合约价回升 = 闪迪/美光 ASP 拐点确认，领先季报 1-2 季度
+
+  dram_spot_ddr5:
+    name: DRAM DDR5 现货均价
+    tickers: [美光, 603986.SH]
+    category: supply_chain
+    cadence: weekly
+    polarity: higher_is_better
+    unit: USD
+    source: {kind: manual, ref: 'DRAMeXchange/集邦（付费），人工填'}
+    thesis: 现货领先合约 1-2 月；现货反弹常是存储周期见底首个信号
+
+  bdi:
+    name: 波罗的海干散货指数
+    tickers: [601919.SH]
+    category: industry
+    cadence: daily
+    polarity: higher_is_better
+    unit: 点
+    source: {kind: url, ref: '多个公开端点（如 tradingeconomics / 航运数据站）'}
+    thesis: 干散货运价直接映射中远海控散货船队景气；BDI 是高频领先量
+
+  ccfi:
+    name: 中国出口集装箱运价指数 CCFI
+    tickers: [601919.SH]
+    category: industry
+    cadence: weekly
+    polarity: higher_is_better
+    unit: 点
+    source: {kind: url, ref: '上海航运交易所 周更（半公开）'}
+    thesis: 集运运价是中远海控集运主业的核心 ASP 代理
+
+  lithium_carbonate:
+    name: 电池级碳酸锂均价
+    tickers: [300750.SZ]
+    category: supply_chain
+    cadence: weekly
+    polarity: lower_is_better
+    unit: 元/吨
+    source: {kind: manual, ref: 'SMM/上海有色 公开摘要有限，百川资讯付费，人工填'}
+    thesis: 对宁德是成本端——锂价下行扩毛利；对上游锂矿则相反（见 polarity 约定）
+
+  polysilicon:
+    name: 多晶硅致密料均价
+    tickers: [601012.SH, 600438.SH]
+    category: supply_chain
+    cadence: weekly
+    polarity: in_range
+    unit: 元/kg
+    source: {kind: manual, ref: 'SMM/硅业分会 周报（付费/会员），人工填'}
+    thesis: 硅料价格是光伏链景气温度计；跌破现金成本=链条出清，企稳=拐点
+
+  semi_na_bb:
+    name: SEMI 北美半导体设备 Book-to-Bill
+    tickers: [002371.SZ, 688012.SH]
+    category: industry
+    cadence: monthly
+    polarity: higher_is_better
+    unit: 比值
+    expected: {baseline: 1.0}
+    source: {kind: url, ref: 'SEMI 官网月度 headline（免费摘要）'}
+    thesis: BB>1 = 设备订单>出货，半导体设备链（北方华创/中微）资本开支扩张期
+
+  tsmc_monthly_rev_yoy:
+    name: 台积电月度营收同比
+    tickers: [TSM, '2330.TW']
+    category: company
+    cadence: monthly
+    polarity: higher_is_better
+    unit: '%'
+    source: {kind: url, ref: '台积电官网 IR，每月 10 号前后发布'}
+    thesis: 全球先进制程/AI capex 最高频读数，领先国内算力链景气
+
+  moutai_wholesale_price:
+    name: 飞天茅台批价（散瓶）
+    tickers: [600519.SH]
+    category: company
+    cadence: weekly
+    polarity: higher_is_better
+    unit: 元/瓶
+    source: {kind: url, ref: '今日酒价等聚合站（可爬，口径需校准）'}
+    thesis: 批价是茅台真实需求与渠道信心的硬指标，领先出厂价调整与季报
+
+  sow_inventory:
+    name: 能繁母猪存栏
+    tickers: [002714.SZ]
+    category: industry
+    cadence: monthly
+    polarity: in_range
+    unit: 万头
+    source: {kind: manual, ref: '农业农村部月度调度（PDF/新闻稿），人工填'}
+    thesis: 周期反向先行——存栏高位=未来 10-12 月猪价承压；去化加速=猪周期反转前兆
+
+  # ============ 个股专属 KPI ============
+
+  cambricon_cloud_demand:
+    name: 寒武纪思元出货 + 互联网大厂采购公告
+    tickers: [688256.SH]
+    category: company
+    cadence: quarterly
+    polarity: higher_is_better
+    source: {kind: manual, ref: '季报存货/预收 + 字节/腾讯/百度采购公告，人工记'}
+    thesis: A 股最纯 AI 芯片标的；大厂采购公告与预收款是国产算力替代的最直接验证
+
+  amec_adv_node_mix:
+    name: 中微 先进制程客户订单占比
+    tickers: [688012.SH]
+    category: company
+    cadence: quarterly
+    polarity: higher_is_better
+    unit: '%'
+    source: {kind: manual, ref: '季报/调研：台积电/中芯/海力士占比，人工记'}
+    thesis: 刻蚀机进先进制程产线（5nm 入台积电）是中微卡位兑现的核心证据
+
+  huahai_cmp_orders:
+    name: 华海清科 CMP 设备订单 + 验收节奏
+    tickers: [688120.SH]
+    category: company
+    cadence: quarterly
+    polarity: higher_is_better
+    source: {kind: manual, ref: '季报合同负债 + 中标/验收公告，人工记'}
+    thesis: CMP 国产化率约 90% 的独苗式卡位；订单+验收节奏直接反映在手与确认
+
+  jcet_tfme_cowos_ramp:
+    name: 长电/通富 CoWoS-like 产能爬坡 + AI 客户占比
+    tickers: [600584.SH, 002156.SZ]
+    category: supply_chain
+    cadence: quarterly
+    polarity: higher_is_better
+    source: {kind: manual, ref: '季报 capex/产能指引 + 调研纪要，人工记'}
+    thesis: 先进封装是 AI 芯片量产瓶颈；通富是 AMD MI300 主力封测，产能即份额
+
+  wus_ai_pcb:
+    name: 沪电 AI 服务器 PCB 单价 + 北美 hyperscaler 份额
+    tickers: [002463.SZ]
+    category: company
+    cadence: quarterly
+    polarity: higher_is_better
+    source: {kind: manual, ref: '季报毛利率拐点 + 产业链调研，人工记'}
+    thesis: 800G/GB200 高多层板 ASP 与大客户份额决定沪电 AI 弹性兑现
+
+  sjsemi_eml_qual:
+    name: 源杰 100G/200G EML 客户验证进度
+    tickers: [688498.SH]
+    category: company
+    cadence: quarterly
+    polarity: higher_is_better
+    source: {kind: manual, ref: '公告/调研：客户导入与单价，人工记'}
+    thesis: 高速光芯片是 800G/1.6T 光模块核心瓶颈，源杰是国内规模化量产稀缺标的
+
+  smic_utilization_asp:
+    name: 中芯国际 稼动率 + ASP + 12 寸出货
+    tickers: [688981.SH]
+    category: company
+    cadence: quarterly
+    polarity: higher_is_better
+    source: {kind: api, ref: '季报可部分推算（稼动率非标准项，ASP=营收/wafer 估算）'}
+    thesis: 稼动率+ASP 是晶圆代工景气与定价权的核心；先进制程占比反映卡位兑现
+
+  tongcheng_arf_resist:
+    name: 彤程新材 ArF 光刻胶量产/客户验证
+    tickers: [603650.SH]
+    category: company
+    cadence: quarterly
+    polarity: higher_is_better
+    source: {kind: manual, ref: '公告：ArF 量产与中芯订单验证，人工记'}
+    thesis: ArF 光刻胶刚突破、EUV 国内空白，国产验证进度是材料卡脖子兑现关键
+
+  hygon_dcu_shipment:
+    name: 海光 DCU 出货 + 信创中标
+    tickers: [688041.SH]
+    category: company
+    cadence: quarterly
+    polarity: higher_is_better
+    source: {kind: manual, ref: '公告/中标库 + 季报，人工记'}
+    thesis: A 股唯一 x86 兼容服务器 CPU + DCU；信创中标与 DCU 放量是替代节奏读数
