@@ -107,6 +107,7 @@ COMMON_COLS = [
     'operating_income',
     'pretax_income',
     'net_income',
+    'net_income_dedt',
     'eps_basic',
     'eps_diluted',
     # 资产负债表
@@ -197,6 +198,7 @@ TUSHARE_INDICATOR_MAP = {
     'net_margin': 'netprofit_margin',
     'debt_to_equity': 'debt_to_assets',
     'current_ratio': 'current_ratio',
+    'net_income_dedt': 'profit_dedt',  # 扣除非经常性损益后的净利润 (Q-Score 质量分用)
 }
 
 
@@ -272,6 +274,16 @@ def fetch_a_share_financials(ts_code: str) -> pd.DataFrame | None:
     if 'gross_profit' in df.columns and 'revenue' in df.columns:
         # 此时 gross_profit 列还是 oper_cost 的值，转一下
         df['gross_profit'] = df['revenue'] - df['gross_profit']
+
+    # 扣非净利润: Q-Score 拿它当净利率/ROE/ROA 分子, 避免一次性损益(投资
+    # 收益/公允价值变动等)灌水. fina_indicator.profit_dedt 缺失(早期/异常)
+    # 时回退总净利润 n_income, 行为不比改前更差.
+    if 'net_income_dedt' in df.columns:
+        df['net_income_dedt'] = df['net_income_dedt'].where(
+            df['net_income_dedt'].notna(), df['net_income']
+        )
+    else:
+        df['net_income_dedt'] = df['net_income']
 
     # 日期 + period
     df['ann_date'] = pd.to_datetime(df['ann_date'], format='%Y%m%d', errors='coerce')
