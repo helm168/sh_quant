@@ -181,7 +181,9 @@ def fetch_quarter(pro, trade_date: str) -> pd.DataFrame:
 
     df = pd.concat(parts, ignore_index=True)
     # exchange ∈ {SH, SZ} = 陆股通(北向);HK = 港股通(南向),丢弃
-    df = df[df['exchange'].isin(('SH', 'SZ'))].copy()
+    # 北向可投资 ETF (如 ETF331.SZ 沪深300ETF) 会被 hk_hold 一起返回. 当前 UI
+    # 用 cn_a 个股 universe, ETF 行不会上榜但会占 parquet/meta 行数, 一律砍.
+    df = df[df['exchange'].isin(('SH', 'SZ')) & ~df['ts_code'].str.startswith('ETF')].copy()
     df['northbound_hold_pct'] = pd.to_numeric(df['ratio'], errors='coerce')
     df = df.dropna(subset=['northbound_hold_pct'])
     return df[['ts_code', 'northbound_hold_pct']].drop_duplicates('ts_code')
