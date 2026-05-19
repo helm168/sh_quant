@@ -1,0 +1,17 @@
+#!/usr/bin/env sh
+set -eu
+
+msg_file="$1"
+
+if grep -Eiq '^(Co-Authored-By|Signed-off-by|Generated-by|Authored-by-AI):' "$msg_file"; then
+    cat >&2 <<'EOF'
+Commit rejected: automatic attribution trailers are not allowed in this repo.
+
+Remove lines like:
+  Co-Authored-By: ...
+  Signed-off-by: ...
+  Generated-by: ...
+  Authored-by-AI: ...
+EOF
+    exit 1
+fi

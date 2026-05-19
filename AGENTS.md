@@ -202,6 +202,18 @@ scope 用模块名（`data` / `backtest` / `metrics` / `plot` / `signals` / `not
 
 commit message 保持一行描述即可，不写多段正文，除非用户明确要求。
 
+### 本地提交防线
+
+仓库启用 `.githooks/commit-msg` 拒绝自动归属 trailer，避免 agent / IDE
+在 commit message 里偷偷加 `Co-Authored-By` / `Signed-off-by` /
+`Generated-by` / `Authored-by-AI`。
+
+首次 clone 后跑一次：
+
+```bash
+git config core.hooksPath .githooks
+```
+
 ### 敏感文件
 
 提交前 `git status` 自检：**任何 token / api key / .env / 真实账号信息一律不进 git**。`.gitignore` 已覆盖常见情况，但每次 add 之前再扫一眼。
