@@ -10,7 +10,9 @@
     series 文件               必须有的列（除 date 外都是数值）
     ─────────────────────────────────────────────────────────
     index_000300.SH           close
-    north_money               north_cum
+    north_money               north_cum        ※ 截断于 2024-08-16（停披露）
+    north_hold_q              hold_mv          ※ 季度，亿元
+    south_money               south_cum        ※ 港股通，南向未停披露
     margin                    margin_bal
     money_supply              m1_yoy, m2_yoy
     lpr                       lpr_1y, lpr_5y
@@ -25,7 +27,15 @@ ORDER BY date ASC`，并把除 date 外每列 `Number(v)` —— 所以每个 pa
 ─────────────────────────────────────
     index_000300.SH  index_daily(000300.SH).close
     north_money      moneyflow_hsgt.north_money 升序累加（百万元）
-                     ※ 2024-08 后交易所停发实时北向，序列自然走平，非 bug
+                     ※ 2024-08-18 交易所停披露日度北向净买入。Tushare 之后
+                       返回的不是真实净流入（实测每天恒定 ~+9万 百万元 垃圾值），
+                       cumsum 会冲到 ~90 万亿元。所以 ≤ 2024-08-16 截断，
+                       parquet 到此为止（不是补 0 补持平——那等于撒谎说还在该水位）。
+    north_hold_q     纯本地聚合：holders/<ts>.parquet 的 northbound_hold_pct
+                     × daily_basic/<ts>.parquet 的 total_mv，按 end_date 汇总。
+                     不调 Tushare（pull_holders 已落数）。季度颗粒。
+    south_money      moneyflow_hsgt.south_money 升序累加（百万元）。
+                     ※ 停披露只针对北向，南向(港股通)仍在正常更新。
     margin           margin.rzrqye 按日跨 SSE/SZSE/BSE 求和 ÷1e8（亿元）
     money_supply     cn_m.m1_yoy / m2_yoy（月度）
     lpr              shibor_lpr.1y→lpr_1y / 5y→lpr_5y（月度）
@@ -173,6 +183,14 @@ def build_index_000300(pro, start, end) -> pd.DataFrame:
     return _finalize(df, ['close'])
 
 
+# 交易所 2024-08-18 起停止披露日度北向净买入。原以为停披露后 Tushare
+# moneyflow_hsgt.north_money 会变 NaN（fillna(0)→cumsum 走平），实测它
+# 返回每日恒定 ~+9万 百万元 的非真实值，cumsum 会一路冲到 ~90 万亿元。
+# 既然没有真实数据了，正确做法是**直接截断**——padding 成 0 等价于
+# 「我们知道之后是 0」，而真相是「我们什么都不知道」。
+NORTH_HALT = pd.Timestamp('2024-08-16')  # 最后一个有效披露日
+
+
 def build_north_money(pro, start, end) -> pd.DataFrame:
     df = _paged(
         lambda s, e: pro.moneyflow_hsgt(start_date=s, end_date=e),
@@ -182,10 +200,93 @@ def build_north_money(pro, start, end) -> pd.DataFrame:
         return df
     df['date'] = _ymd_to_date(df['trade_date'])
     df = df.sort_values('date')
+    df = df[df['date'] <= NORTH_HALT]
+    if df.empty:
+        return df
     df['north_money'] = pd.to_numeric(df['north_money'], errors='coerce')
-    # 停发期 north_money 为 NaN：填 0 再累加，曲线走平而非断裂
     df['north_cum'] = df['north_money'].fillna(0).cumsum()
     return _finalize(df, ['north_cum'])
+
+
+def build_south_money(pro, start, end) -> pd.DataFrame:
+    """南向(港股通)累计净流入。和 north_money 同一个 API call，但南向没停披露。"""
+    df = _paged(
+        lambda s, e: pro.moneyflow_hsgt(start_date=s, end_date=e),
+        start, end, 365 * 3,
+    )
+    if df.empty:
+        return df
+    df['date'] = _ymd_to_date(df['trade_date'])
+    df = df.sort_values('date')
+    df['south_money'] = pd.to_numeric(df['south_money'], errors='coerce')
+    df['south_cum'] = df['south_money'].fillna(0).cumsum()
+    return _finalize(df, ['south_cum'])
+
+
+def build_north_hold_q(pro, start, end) -> pd.DataFrame:
+    """北向(陆股通)季度持股市值聚合。
+
+    不调 Tushare —— 纯本地聚合两份已有 parquet：
+      • holders/<ts>.parquet     pull_holders.py 落, northbound_hold_pct (%)
+      • daily_basic/<ts>.parquet Tushare daily_basic, total_mv (万元)
+
+    每只股票按 holders 里的 end_date 在 daily_basic 里 merge_asof 取最近一个
+    trade_date ≤ end_date 的 total_mv，再按季末聚合：
+        hold_mv_万元 = Σᵢ total_mvᵢ × pctᵢ / 100
+    最后 /1e4 → 亿元，符合契约 hold_mv 列。
+
+    pro / start / end 参数为了和 BUILDERS 签名一致，这里不用。
+    """
+    holders_dir = _data_root() / 'holders'
+    db_dir = _data_root() / 'daily_basic'
+    if not holders_dir.exists() or not db_dir.exists():
+        print(f'  跳过 north_hold_q: 缺 holders/ 或 daily_basic/ '
+              f'(holders={holders_dir.exists()}, daily_basic={db_dir.exists()})')
+        return pd.DataFrame()
+
+    pieces = []
+    n_total = n_ok = 0
+    for hf in sorted(holders_dir.glob('*.parquet')):
+        n_total += 1
+        ts = hf.stem
+        db_f = db_dir / f'{ts}.parquet'
+        if not db_f.exists():
+            continue
+        try:
+            hd = pd.read_parquet(hf, columns=['end_date', 'northbound_hold_pct'])
+            db = pd.read_parquet(db_f, columns=['trade_date', 'total_mv'])
+        except Exception:
+            continue
+        if hd.empty or db.empty:
+            continue
+        hd = hd.dropna(subset=['northbound_hold_pct'])
+        hd = hd[hd['northbound_hold_pct'] > 0]
+        if hd.empty:
+            continue
+        hd = hd.rename(columns={'end_date': 'date'})
+        hd['date'] = pd.to_datetime(hd['date'])
+        db = db.rename(columns={'trade_date': 'date'})
+        db['date'] = pd.to_datetime(db['date'])
+        hd = hd.sort_values('date')
+        db = db.sort_values('date').dropna(subset=['total_mv'])
+        if db.empty:
+            continue
+        merged = pd.merge_asof(hd, db, on='date', direction='backward')
+        merged = merged.dropna(subset=['total_mv'])
+        if merged.empty:
+            continue
+        merged['hold_mv_wan'] = merged['total_mv'] * merged['northbound_hold_pct'] / 100.0
+        pieces.append(merged[['date', 'hold_mv_wan']])
+        n_ok += 1
+
+    if not pieces:
+        print(f'  north_hold_q: 0 / {n_total} 文件出数 — 无聚合结果')
+        return pd.DataFrame()
+    print(f'  north_hold_q: 聚合 {n_ok} / {n_total} 只 A 股的季度持股市值')
+    big = pd.concat(pieces, ignore_index=True)
+    agg = big.groupby('date', as_index=False)['hold_mv_wan'].sum()
+    agg['hold_mv'] = agg['hold_mv_wan'] / 1e4   # 万元 → 亿元
+    return _finalize(agg, ['hold_mv'])
 
 
 def build_margin(pro, start, end) -> pd.DataFrame:
@@ -310,6 +411,8 @@ def build_china_us_spread(pro, start, end) -> pd.DataFrame:
 BUILDERS = {
     'index_000300.SH': build_index_000300,
     'north_money': build_north_money,
+    'north_hold_q': build_north_hold_q,
+    'south_money': build_south_money,
     'margin': build_margin,
     'money_supply': build_money_supply,
     'lpr': build_lpr,
