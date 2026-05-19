@@ -146,7 +146,10 @@ def fetch_quarter(pro, trade_date: str) -> pd.DataFrame:
     """返回 [ts_code, northbound_hold_pct]。空 → 空 df。"""
     parts: list[pd.DataFrame] = []
     offset = 0
-    limit = 5000
+    # hk_hold 全市场单次有服务端行数上限(实测 ~4200, 总量可达 ~4900),
+    # 必须 ≤ 服务端整页粒度才能让 "短页=最后一页" 成立. 2000 是 Tushare
+    # 通用安全页, 实测整页恒回 2000 → 翻页正确, 不会漏标的.
+    limit = 2000
     while True:
         chunk = _call(
             lambda o=offset: pro.hk_hold(
