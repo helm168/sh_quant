@@ -60,7 +60,7 @@ kpis:
     cadence: daily
     polarity: higher_is_better
     unit: 点
-    source: {kind: url, ref: '多个公开端点（如 tradingeconomics / 航运数据站）'}
+    source: {kind: manual, ref: 'Baltic Exchange 官方付费,无稳定免费 API;公开新闻周记手填'}
     thesis: 干散货运价直接映射中远海控散货船队景气；BDI 是高频领先量
 
   ccfi:

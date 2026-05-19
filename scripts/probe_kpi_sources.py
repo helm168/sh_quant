@@ -66,13 +66,6 @@ def probe_tsmc() -> tuple[str, str]:
     return 'OK', f'找到 2330，字段含: {keys}… —— pull_kpi 取「当月营收 + 去年同月增减%」'
 
 
-def probe_bdi() -> tuple[str, str]:
-    """BDI：波罗的海交易所官方付费，无可靠免费 API（已知事实，不联网）。"""
-    return 'DEAD', ('Baltic Exchange 官方数据付费；无稳定免费 API。'
-                    '建议 core_kpi.yaml 把 bdi 降级 source.kind=manual（公开新闻周记），'
-                    '或单独评估付费航运数据源')
-
-
 def probe_ccfi() -> tuple[str, str]:
     """CCFI：上海航运交易所英文指数页，周更，值在 HTML 表里。"""
     url = 'https://en.sse.net.cn/indices/ccfinew.jsp'
@@ -130,7 +123,6 @@ def probe_smic() -> tuple[str, str]:
 
 PROBES = {
     'tsmc_monthly_rev_yoy': probe_tsmc,
-    'bdi': probe_bdi,
     'ccfi': probe_ccfi,
     'semi_na_bb': probe_semi_na_bb,
     'moutai_wholesale_price': probe_moutai,
