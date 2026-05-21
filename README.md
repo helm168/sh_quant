@@ -27,11 +27,15 @@ sh_quant/
 
 ```bash
 cd sh_quant
-bash setup.sh                # 建 .venv、装依赖、注册 jupyter kernel
+bash setup.sh                # 用 uv 建项目外 venv、装依赖、注册 jupyter kernel
 source .venv/bin/activate    # 激活
 cp .env.example .env         # 填入 TUSHARE_TOKEN
 jupyter lab                  # 启动
 ```
+
+默认环境位置是 `~/.cache/uv-venvs/sh_quant`，项目根的 `.venv` 只是 symlink。
+依赖安装时使用 `uv pip install --link-mode symlink`，包文件会尽量链接到 uv 全局 cache。
+如果要改位置，可设置 `SH_QUANT_VENV=/path/to/venv bash setup.sh`。
 
 在 notebook 里选 kernel **"Python (sh_quant)"** 即可。
 

@@ -159,8 +159,9 @@ for sub_id, sub_name in get_subtracks('ai_compute').items():
 
 ## 环境
 
-- Python ≥ 3.10，项目级 venv (`.venv/`)。
-- 一键 bootstrap：`bash setup.sh` → 建 venv + 装依赖 + 注册 Jupyter kernel `Python (sh_quant)`。
+- Python ≥ 3.10，依赖环境优先用 `uv` 管理。
+- 一键 bootstrap：`bash setup.sh` → 在项目外建 venv + 装依赖 + 注册 Jupyter kernel `Python (sh_quant)`。
+- 默认 venv 位置：`~/.cache/uv-venvs/sh_quant`；项目根 `.venv` 只是 symlink，避免 Codex workspace 复制大量 lib 文件。依赖安装用 `uv pip install --link-mode symlink`，包文件会尽量链接到 uv 全局 cache。需要改位置时设置 `SH_QUANT_VENV=/path/to/venv`。
 - 之后 `source .venv/bin/activate && jupyter lab`，notebook 里选 `Python (sh_quant)` kernel。
 - 锁版本：需要 reproduce 时跑 `make freeze` 生成 `requirements.lock.txt`。
 - 不要全局装包；不要在 notebook 里 `!pip install`（会污染环境且 CI 不可重放）。

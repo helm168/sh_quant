@@ -10,7 +10,7 @@ version = "0.1.0"
 description = "Personal quant research toolkit"
 requires-python = ">=3.10"
 
-# 把项目装成 editable package：在项目根目录 `pip install -e .` 一次，
+# 把项目装成 editable package：在项目根目录 `uv pip install -e .` 一次，
 # 之后 notebook / 脚本 / 测试在任何路径都能 `from utils.X import Y`。
 [tool.setuptools]
 packages = ["utils", "config"]
