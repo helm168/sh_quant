@@ -1,6 +1,6 @@
 """拉宏观/流动性序列 → <data_root>/macro/<series>.parquet。
 
-为什么是这 7 个序列（不是随便挑）
+为什么是这一组序列（不是随便挑）
 ──────────────────────────────────
 消费侧（sibling app Billionaire）的宏观面板
 `src/features/macro/macroPanel.config.ts` + `localDataMiddleware.ts`
@@ -10,6 +10,11 @@
     series 文件               必须有的列（除 date 外都是数值）
     ─────────────────────────────────────────────────────────
     index_000300.SH           close
+    index_HSI                 close            ※ 港股大盘
+    index_HSTECH              close            ※ 恒生科技
+    index_NDX                 close            ※ 纳斯达克 100
+    index_SPX                 close            ※ 标普 500
+    fx_usdcnh                 value            ※ 离岸人民币
     north_money               north_cum        ※ 截断于 2024-08-16（停披露）
     north_hold_q              hold_mv          ※ 季度，亿元
     south_money               south_cum        ※ 港股通，南向未停披露
@@ -26,6 +31,13 @@ ORDER BY date ASC`，并把除 date 外每列 `Number(v)` —— 所以每个 pa
 数据源（都在 Tushare 基础会员，无 VIP）
 ─────────────────────────────────────
     index_000300.SH  index_daily(000300.SH).close
+    index_HSI/SPX    Tushare index_global(HSI/SPX).close   港股大盘 + 标普 500
+    index_HSTECH     akshare.stock_hk_index_daily_em('HSTECH').latest
+                     ※ Tushare 不收恒科（2020-07 才发布），走 akshare 东财
+    index_NDX        akshare.index_us_stock_sina('.NDX').close
+                     ※ Tushare index_global 只收 IXIC（纳指综合）无 NDX，
+                       走 akshare 新浪美股
+    fx_usdcnh        fx_daily(USDCNH.FXCM).bid_close → value 离岸人民币
     north_money      moneyflow_hsgt.north_money 升序累加（百万元）
                      ※ 2024-08-18 交易所停披露日度北向净买入。Tushare 之后
                        返回的不是真实净流入（实测每天恒定 ~+9万 百万元 垃圾值），
@@ -173,7 +185,7 @@ def _finalize(df: pd.DataFrame, value_cols: list[str]) -> pd.DataFrame:
     return out
 
 
-# ─── 7 个序列各自的 builder ──────────────────────────────────────────────
+# ─── 各 builder ──────────────────────────────────────────────────────────
 def build_index_000300(pro, start, end) -> pd.DataFrame:
     df = _paged(
         lambda s, e: pro.index_daily(ts_code='000300.SH', start_date=s, end_date=e),
@@ -191,6 +203,64 @@ def build_index_000300(pro, start, end) -> pd.DataFrame:
 # 既然没有真实数据了，正确做法是**直接截断**——padding 成 0 等价于
 # 「我们知道之后是 0」，而真相是「我们什么都不知道」。
 NORTH_HALT = pd.Timestamp('2024-08-16')  # 最后一个有效披露日
+
+
+def _build_index_global(ts_code: str):
+    """Tushare index_global builder。实测可用：HSI / SPX。
+    HSTECH（2020-07 发布）、NDX（纳斯达克 100）Tushare 基础会员都不收，
+    走 akshare 替代源——见 build_index_HSTECH / build_index_NDX。"""
+    def builder(pro, start, end) -> pd.DataFrame:
+        df = _paged(
+            lambda s, e: pro.index_global(ts_code=ts_code, start_date=s, end_date=e),
+            start, end, 365 * 3,
+        )
+        if df.empty:
+            return df
+        df['date'] = _ymd_to_date(df['trade_date'])
+        return _finalize(df, ['close'])
+    return builder
+
+
+def build_index_HSTECH(pro, start, end) -> pd.DataFrame:
+    """恒生科技指数 — Tushare index_global 不收（2020-07 发布），走 akshare 东财。
+
+    ak.stock_hk_index_daily_em(symbol='HSTECH') 返回日度 OHLC，列名中文。
+    pro / start / end 保留签名一致但不使用（akshare 一次返回全历史）。
+    """
+    import akshare as ak
+    df = ak.stock_hk_index_daily_em(symbol='HSTECH')
+    if df is None or df.empty:
+        return pd.DataFrame()
+    df = df.rename(columns={'latest': 'close'})
+    df['date'] = pd.to_datetime(df['date'])
+    return _finalize(df, ['close'])
+
+
+def build_index_NDX(pro, start, end) -> pd.DataFrame:
+    """纳斯达克 100 — Tushare index_global 只收 IXIC（纳指综合）无 NDX，走 akshare 新浪。
+
+    ak.index_us_stock_sina(symbol='.NDX') 返回日度，'date' / 'close' 列。
+    pro / start / end 保留签名一致但不使用（新浪一次返回全历史）。
+    """
+    import akshare as ak
+    df = ak.index_us_stock_sina(symbol='.NDX')
+    if df is None or df.empty:
+        return pd.DataFrame()
+    df['date'] = pd.to_datetime(df['date'])
+    return _finalize(df, ['close'])
+
+
+def build_fx_usdcnh(pro, start, end) -> pd.DataFrame:
+    df = _paged(
+        lambda s, e: pro.fx_daily(ts_code='USDCNH.FXCM', start_date=s, end_date=e),
+        start, end, 365 * 3,
+    )
+    if df.empty:
+        return df
+    df['date'] = _ymd_to_date(df['trade_date'])
+    # fx_daily 返回 bid/ask 各 4 价，取 bid_close 作为日收盘（业内默认）
+    df = df.rename(columns={'bid_close': 'value'})
+    return _finalize(df, ['value'])
 
 
 def build_north_money(pro, start, end) -> pd.DataFrame:
@@ -426,6 +496,11 @@ def build_china_us_spread(pro, start, end) -> pd.DataFrame:
 
 BUILDERS = {
     'index_000300.SH': build_index_000300,
+    'index_HSI': _build_index_global('HSI'),
+    'index_HSTECH': build_index_HSTECH,
+    'index_NDX': build_index_NDX,
+    'index_SPX': _build_index_global('SPX'),
+    'fx_usdcnh': build_fx_usdcnh,
     'north_money': build_north_money,
     'north_hold_q': build_north_hold_q,
     'south_money': build_south_money,
@@ -468,25 +543,28 @@ def main() -> int:
     print('-' * 70)
 
     ok: list[dict] = []
-    skipped: list[tuple[str, str]] = []
+    perm_denied: list[tuple[str, str]] = []  # 权限/积分 → 需换数据源
+    failed: list[tuple[str, str]] = []        # 其他错（接口异常/网络/解析）
+    empties: list[str] = []                   # 接口成功但无数据
+    guarded: list[tuple[str, str]] = []       # 行数退化保护
     n = len(names)
     for i, name in enumerate(names, 1):
         try:
             df = BUILDERS[name](pro, args.start, end)
         except PermissionSkip as e:
-            print(f'  [{i}/{n}] skip  {name:<17} 权限/积分 -> {str(e)[:70]}')
-            skipped.append((name, str(e)))
+            print(f'  [{i}/{n}] PERM  {name:<17} 权限/积分不足 -> {str(e)[:80]}')
+            perm_denied.append((name, str(e)))
             time.sleep(args.sleep)
             continue
         except Exception as e:  # noqa: BLE001
             print(f'  [{i}/{n}] FAIL  {name:<17} -> {e}')
-            skipped.append((name, str(e)))
+            failed.append((name, str(e)))
             time.sleep(args.sleep)
             continue
 
         if df is None or df.empty:
             print(f'  [{i}/{n}] empty {name:<17} 接口返回空')
-            skipped.append((name, 'empty'))
+            empties.append(name)
             time.sleep(args.sleep)
             continue
 
@@ -497,7 +575,7 @@ def main() -> int:
             old_rows = len(pd.read_parquet(out_fp, columns=['date']))
             if len(df) < old_rows * 0.95:
                 print(f'  [{i}/{n}] GUARD {name:<17} 行数退化 {old_rows} → {len(df)}，保留旧数据')
-                skipped.append((name, f'rows degraded {old_rows}->{len(df)}'))
+                guarded.append((name, f'rows degraded {old_rows}->{len(df)}'))
                 time.sleep(args.sleep)
                 continue
 
@@ -522,12 +600,44 @@ def main() -> int:
         merged.to_parquet(idx_path, index=False)
 
     print('-' * 70)
-    print(f'完成: {len(ok)} 成功 / {len(skipped)} 跳过 → {CACHE_DIR}')
-    if skipped:
-        print('\n跳过明细：')
-        for name, err in skipped:
-            print(f'  {name}: {err[:100]}')
-    return 0 if ok else 1
+    total_skip = len(perm_denied) + len(failed) + len(empties) + len(guarded)
+    print(f'完成: {len(ok)} 成功 / {total_skip} 跳过 → {CACHE_DIR}')
+
+    # 权限不足是「Tushare 这条路走不通，需要换数据源」的明确信号，单独高亮——
+    # 不要混在 generic 失败里，否则会被以为是临时错而被忽略。
+    if perm_denied:
+        print('\n' + '!' * 70)
+        print(f'⚠  {len(perm_denied)} 个序列 Tushare 权限/积分不足，需考虑备选数据源：')
+        for name, err in perm_denied:
+            print(f'   • {name}')
+            print(f'     原因: {err[:120]}')
+        print('   建议：评估 Yahoo Finance / FRED / akshare 等替代源，或决定放弃该序列。')
+        print('!' * 70)
+
+    if failed:
+        print('\n失败（非权限，可能网络/解析/接口异常，可重试）：')
+        for name, err in failed:
+            print(f'  {name}: {err[:120]}')
+
+    if empties:
+        print('\n空数据（接口返回 0 行，检查参数 / 时间窗）：')
+        for name in empties:
+            print(f'  {name}')
+
+    if guarded:
+        print('\n行数退化保护（旧数据保留，未覆盖）：')
+        for name, msg in guarded:
+            print(f'  {name}: {msg}')
+
+    # exit code 区分场景：
+    #   0 — 全部成功
+    #   1 — 完全失败
+    #   2 — 部分成功，但有权限问题（CI / cron 应当告警，让人来看）
+    if not ok:
+        return 1
+    if perm_denied:
+        return 2
+    return 0
 
 
 if __name__ == '__main__':
