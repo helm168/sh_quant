@@ -10,6 +10,8 @@
     series 文件               必须有的列（除 date 外都是数值）
     ─────────────────────────────────────────────────────────
     index_000300.SH           close
+    index_399006.SZ           close            ※ 创业板指
+    index_000688.SH           close            ※ 科创50
     index_HSI                 close            ※ 港股大盘
     index_HSTECH              close            ※ 恒生科技
     index_NDX                 close            ※ 纳斯达克 100
@@ -35,6 +37,8 @@ ORDER BY date ASC`，并把除 date 外每列 `Number(v)` —— 所以每个 pa
 数据源（都在 Tushare 基础会员，无 VIP）
 ─────────────────────────────────────
     index_000300.SH  index_daily(000300.SH).close
+    index_399006.SZ  index_daily(399006.SZ).close          创业板指
+    index_000688.SH  index_daily(000688.SH).close          科创50
     index_HSI/SPX    Tushare index_global(HSI/SPX).close   港股大盘 + 标普 500
     index_HSTECH     akshare.stock_hk_index_daily_em('HSTECH').latest
                      ※ Tushare 不收恒科（2020-07 才发布），走 akshare 东财
@@ -204,7 +208,37 @@ def _finalize(df: pd.DataFrame, value_cols: list[str]) -> pd.DataFrame:
 def build_index_000300(pro, start, end) -> pd.DataFrame:
     df = _paged(
         lambda s, e: pro.index_daily(ts_code='000300.SH', start_date=s, end_date=e),
-        start, end, 365 * 6,
+        start,
+        end,
+        365 * 6,
+    )
+    if df.empty:
+        return df
+    df['date'] = _ymd_to_date(df['trade_date'])
+    return _finalize(df, ['close'])
+
+
+def build_index_399006(pro, start, end) -> pd.DataFrame:
+    """创业板指 — Tushare index_daily 直接收."""
+    df = _paged(
+        lambda s, e: pro.index_daily(ts_code='399006.SZ', start_date=s, end_date=e),
+        start,
+        end,
+        365 * 6,
+    )
+    if df.empty:
+        return df
+    df['date'] = _ymd_to_date(df['trade_date'])
+    return _finalize(df, ['close'])
+
+
+def build_index_000688(pro, start, end) -> pd.DataFrame:
+    """科创50 — Tushare index_daily 直接收."""
+    df = _paged(
+        lambda s, e: pro.index_daily(ts_code='000688.SH', start_date=s, end_date=e),
+        start,
+        end,
+        365 * 6,
     )
     if df.empty:
         return df
@@ -224,15 +258,19 @@ def _build_index_global(ts_code: str):
     """Tushare index_global builder。实测可用：HSI / SPX。
     HSTECH（2020-07 发布）、NDX（纳斯达克 100）Tushare 基础会员都不收，
     走 akshare 替代源——见 build_index_HSTECH / build_index_NDX。"""
+
     def builder(pro, start, end) -> pd.DataFrame:
         df = _paged(
             lambda s, e: pro.index_global(ts_code=ts_code, start_date=s, end_date=e),
-            start, end, 365 * 3,
+            start,
+            end,
+            365 * 3,
         )
         if df.empty:
             return df
         df['date'] = _ymd_to_date(df['trade_date'])
         return _finalize(df, ['close'])
+
     return builder
 
 
@@ -243,6 +281,7 @@ def build_index_HSTECH(pro, start, end) -> pd.DataFrame:
     pro / start / end 保留签名一致但不使用（akshare 一次返回全历史）。
     """
     import akshare as ak
+
     df = ak.stock_hk_index_daily_em(symbol='HSTECH')
     if df is None or df.empty:
         return pd.DataFrame()
@@ -258,6 +297,7 @@ def build_index_NDX(pro, start, end) -> pd.DataFrame:
     pro / start / end 保留签名一致但不使用（新浪一次返回全历史）。
     """
     import akshare as ak
+
     df = ak.index_us_stock_sina(symbol='.NDX')
     if df is None or df.empty:
         return pd.DataFrame()
@@ -268,7 +308,9 @@ def build_index_NDX(pro, start, end) -> pd.DataFrame:
 def build_fx_usdcnh(pro, start, end) -> pd.DataFrame:
     df = _paged(
         lambda s, e: pro.fx_daily(ts_code='USDCNH.FXCM', start_date=s, end_date=e),
-        start, end, 365 * 3,
+        start,
+        end,
+        365 * 3,
     )
     if df.empty:
         return df
@@ -281,7 +323,9 @@ def build_fx_usdcnh(pro, start, end) -> pd.DataFrame:
 def build_north_money(pro, start, end) -> pd.DataFrame:
     df = _paged(
         lambda s, e: pro.moneyflow_hsgt(start_date=s, end_date=e),
-        start, end, 365 * 3,
+        start,
+        end,
+        365 * 3,
     )
     if df.empty:
         return df
@@ -312,6 +356,7 @@ def build_south_money(pro, start, end) -> pd.DataFrame:
     pro/start/end 参数保留接口一致但不使用（akshare 一次返回全历史）。
     """
     import akshare as ak
+
     df = ak.stock_hsgt_hist_em(symbol='南向资金')
     if df.empty:
         return df
@@ -341,8 +386,10 @@ def build_north_hold_q(pro, start, end) -> pd.DataFrame:
     holders_dir = _data_root() / 'holders'
     db_dir = _data_root() / 'daily_basic'
     if not holders_dir.exists() or not db_dir.exists():
-        print(f'  跳过 north_hold_q: 缺 holders/ 或 daily_basic/ '
-              f'(holders={holders_dir.exists()}, daily_basic={db_dir.exists()})')
+        print(
+            f'  跳过 north_hold_q: 缺 holders/ 或 daily_basic/ '
+            f'(holders={holders_dir.exists()}, daily_basic={db_dir.exists()})'
+        )
         return pd.DataFrame()
 
     pieces = []
@@ -386,7 +433,7 @@ def build_north_hold_q(pro, start, end) -> pd.DataFrame:
     print(f'  north_hold_q: 聚合 {n_ok} / {n_total} 只 A 股的季度持股市值')
     big = pd.concat(pieces, ignore_index=True)
     agg = big.groupby('date', as_index=False)['hold_mv_wan'].sum()
-    agg['hold_mv'] = agg['hold_mv_wan'] / 1e4   # 万元 → 亿元
+    agg['hold_mv'] = agg['hold_mv_wan'] / 1e4  # 万元 → 亿元
     return _finalize(agg, ['hold_mv'])
 
 
@@ -461,6 +508,7 @@ def build_cn_dgs10(pro, start, end) -> pd.DataFrame:
     源站后端按页返回），所以按年度分窗逐段拉再 concat。
     """
     import akshare as ak
+
     s_ts = pd.Timestamp(start)
     e_ts = pd.Timestamp(end)
     parts = []
@@ -513,6 +561,7 @@ def build_equity_bond_yield(pro, start, end) -> pd.DataFrame:
     bond['date'] = pd.to_datetime(bond['date'])
 
     import akshare as ak
+
     dv = ak.stock_a_gxl_lg(symbol='上证A股')
     if dv is None or dv.empty:
         return pd.DataFrame()
@@ -566,10 +615,9 @@ def build_china_us_spread(pro, start, end) -> pd.DataFrame:
         s = (me - pd.Timedelta(days=12)).strftime('%Y%m%d')
         e = me.strftime('%Y%m%d')
         df = _call(
-            lambda a, b: pro.yc_cb(
-                ts_code='1001.CB', curve_type='0', start_date=a, end_date=b
-            ),
-            s, e,
+            lambda a, b: pro.yc_cb(ts_code='1001.CB', curve_type='0', start_date=a, end_date=b),
+            s,
+            e,
         )
         time.sleep(3.2)
         if df is None or df.empty:
@@ -585,11 +633,7 @@ def build_china_us_spread(pro, start, end) -> pd.DataFrame:
     if cn_new.empty:
         return old if not old.empty else pd.DataFrame()
 
-    us_m = (
-        us.set_index('date')['us10y']
-        .resample('ME').last()
-        .reset_index()
-    )
+    us_m = us.set_index('date')['us10y'].resample('ME').last().reset_index()
     us_m['date'] = us_m['date'].dt.normalize()
     m = cn_new.merge(us_m, on='date', how='inner')
     m['spread'] = m['cn10y'] - m['us10y']
@@ -608,6 +652,8 @@ def build_china_us_spread(pro, start, end) -> pd.DataFrame:
 
 BUILDERS = {
     'index_000300.SH': build_index_000300,
+    'index_399006.SZ': build_index_399006,
+    'index_000688.SH': build_index_000688,
     'index_HSI': _build_index_global('HSI'),
     'index_HSTECH': build_index_HSTECH,
     'index_NDX': build_index_NDX,
@@ -661,9 +707,9 @@ def main() -> int:
 
     ok: list[dict] = []
     perm_denied: list[tuple[str, str]] = []  # 权限/积分 → 需换数据源
-    failed: list[tuple[str, str]] = []        # 其他错（接口异常/网络/解析）
-    empties: list[str] = []                   # 接口成功但无数据
-    guarded: list[tuple[str, str]] = []       # 行数退化保护
+    failed: list[tuple[str, str]] = []  # 其他错（接口异常/网络/解析）
+    empties: list[str] = []  # 接口成功但无数据
+    guarded: list[tuple[str, str]] = []  # 行数退化保护
     n = len(names)
     for i, name in enumerate(names, 1):
         try:
@@ -700,8 +746,14 @@ def main() -> int:
         cols = [c for c in df.columns if c != 'date']
         d0, d1 = df['date'].min().date(), df['date'].max().date()
         print(f'  [{i}/{n}] ok    {name:<17} {len(df):>5} 行  {d0} ~ {d1}  {cols}')
-        ok.append({'series': name, 'rows': len(df),
-                   'date_min': df['date'].min(), 'date_max': df['date'].max()})
+        ok.append(
+            {
+                'series': name,
+                'rows': len(df),
+                'date_min': df['date'].min(),
+                'date_max': df['date'].max(),
+            }
+        )
         time.sleep(args.sleep)
 
     if ok:
