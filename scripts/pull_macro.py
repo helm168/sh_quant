@@ -490,7 +490,18 @@ def main() -> int:
             time.sleep(args.sleep)
             continue
 
-        df.to_parquet(CACHE_DIR / f'{name}.parquet', index=False)
+        # Sanity check: 防止上游接口抽风（返回部分数据/改 schema）覆盖好数据。
+        # 全量 pull 模式下，新数据行数不应少于旧数据 5% 以上。
+        out_fp = CACHE_DIR / f'{name}.parquet'
+        if out_fp.exists():
+            old_rows = len(pd.read_parquet(out_fp, columns=['date']))
+            if len(df) < old_rows * 0.95:
+                print(f'  [{i}/{n}] GUARD {name:<17} 行数退化 {old_rows} → {len(df)}，保留旧数据')
+                skipped.append((name, f'rows degraded {old_rows}->{len(df)}'))
+                time.sleep(args.sleep)
+                continue
+
+        df.to_parquet(out_fp, index=False)
         cols = [c for c in df.columns if c != 'date']
         d0, d1 = df['date'].min().date(), df['date'].max().date()
         print(f'  [{i}/{n}] ok    {name:<17} {len(df):>5} 行  {d0} ~ {d1}  {cols}')
