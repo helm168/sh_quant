@@ -34,8 +34,10 @@ ORDER BY date ASC`，并把除 date 外每列 `Number(v)` —— 所以每个 pa
     north_hold_q     纯本地聚合：holders/<ts>.parquet 的 northbound_hold_pct
                      × daily_basic/<ts>.parquet 的 total_mv，按 end_date 汇总。
                      不调 Tushare（pull_holders 已落数）。季度颗粒。
-    south_money      moneyflow_hsgt.south_money 升序累加（百万元）。
-                     ※ 停披露只针对北向，南向(港股通)仍在正常更新。
+    south_money      ggt_daily.(buy_amount − sell_amount) ×100 升序累加（百万元）。
+                     ※ 官方仍每日披露南向净买入，但 Tushare moneyflow_hsgt.south_money
+                       字段 2023-11-24 起静默变质（不再是日净流入），故改走
+                       ggt_daily 拿真实 buy/sell 计算。详见 build_south_money。
     margin           margin.rzrqye 按日跨 SSE/SZSE/BSE 求和 ÷1e8（亿元）
     money_supply     cn_m.m1_yoy / m2_yoy（月度）
     lpr              shibor_lpr.1y→lpr_1y / 5y→lpr_5y（月度）
@@ -209,17 +211,29 @@ def build_north_money(pro, start, end) -> pd.DataFrame:
 
 
 def build_south_money(pro, start, end) -> pd.DataFrame:
-    """南向(港股通)累计净流入。和 north_money 同一个 API call，但南向没停披露。"""
+    """南向(港股通)累计净流入。
+
+    数据源：ggt_daily（港股通买入/卖出金额，单位亿元），net = buy - sell。
+
+    历史踩坑：原本用 moneyflow_hsgt.south_money，2023-11-24 起 Tushare 上游
+    源静默变质——south_money 字段不再是"日净流入"（变成 ~15,000 百万恒定
+    缓慢增长，再也不为负），cumsum 后 2023-11-24 之后的累计是垃圾值。
+    官方（上交所/港交所）仍每日披露南向净买入，只是 moneyflow_hsgt 这个
+    字段失效，改走 ggt_daily 接口拿原始 buy_amount/sell_amount。
+    """
     df = _paged(
-        lambda s, e: pro.moneyflow_hsgt(start_date=s, end_date=e),
+        lambda s, e: pro.ggt_daily(start_date=s, end_date=e),
         start, end, 365 * 3,
     )
     if df.empty:
         return df
     df['date'] = _ymd_to_date(df['trade_date'])
     df = df.sort_values('date')
-    df['south_money'] = pd.to_numeric(df['south_money'], errors='coerce')
-    df['south_cum'] = df['south_money'].fillna(0).cumsum()
+    df['buy_amount'] = pd.to_numeric(df['buy_amount'], errors='coerce')
+    df['sell_amount'] = pd.to_numeric(df['sell_amount'], errors='coerce')
+    # ggt_daily 单位亿元，乘 100 转百万元，与 north_money 口径一致
+    df['south_net'] = (df['buy_amount'] - df['sell_amount']) * 100
+    df['south_cum'] = df['south_net'].fillna(0).cumsum()
     return _finalize(df, ['south_cum'])
 
 
