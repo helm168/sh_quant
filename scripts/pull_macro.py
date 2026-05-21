@@ -483,7 +483,16 @@ def main() -> int:
         time.sleep(args.sleep)
 
     if ok:
-        pd.DataFrame(ok).to_parquet(CACHE_DIR / '_series.parquet', index=False)
+        idx_path = CACHE_DIR / '_series.parquet'
+        new_idx = pd.DataFrame(ok)
+        if idx_path.exists():
+            old_idx = pd.read_parquet(idx_path)
+            merged = pd.concat([old_idx, new_idx], ignore_index=True)
+            merged = merged.drop_duplicates(subset='series', keep='last')
+            merged = merged.sort_values('series').reset_index(drop=True)
+        else:
+            merged = new_idx
+        merged.to_parquet(idx_path, index=False)
 
     print('-' * 70)
     print(f'完成: {len(ok)} 成功 / {len(skipped)} 跳过 → {CACHE_DIR}')
