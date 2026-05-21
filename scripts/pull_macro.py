@@ -21,6 +21,10 @@
     margin                    margin_bal
     money_supply              m1_yoy, m2_yoy
     lpr                       lpr_1y, lpr_5y
+    cn_ppi                    ppi_yoy          ※ 月度
+    cn_cpi                    cpi_yoy          ※ 月度
+    cn_dgs10                  value            ※ 中债 10Y 日度
+    equity_bond_yield         spread           ※ HS300 股息率 − CN10Y, 日度
     fred_DGS10                value
     china_us_spread           spread
 
@@ -53,6 +57,17 @@ ORDER BY date ASC`，并把除 date 外每列 `Number(v)` —— 所以每个 pa
     margin           margin.rzrqye 按日跨 SSE/SZSE/BSE 求和 ÷1e8（亿元）
     money_supply     cn_m.m1_yoy / m2_yoy（月度）
     lpr              shibor_lpr.1y→lpr_1y / 5y→lpr_5y（月度）
+    cn_ppi           cn_ppi.nt_yoy → ppi_yoy 工业品出厂价格同比（月度，全国）
+    cn_cpi           cn_cpi.nt_yoy → cpi_yoy 居民消费价格同比（月度，全国）
+    cn_dgs10         akshare.bond_china_yield '10年' → value 中债 10Y 日度
+                     ※ Tushare yc_cb 限 20 次/分钟、每次 ~500 期限点撞 2000
+                       上限，做日度极慢。走 akshare 中债（一次取一年内日度全量）
+    equity_bond_yield  A 股股息率(上证A股代理) − cn_dgs10.value，按日 inner join。
+                     ※ akshare 没有「沪深300 股息率」日度长史接口，故用
+                       ak.stock_a_gxl_lg('上证A股') 当代理（HS300 约 60% 权重
+                       在上证，相关性 > 0.95，作为「股债性价比」择时足够）。
+                     store raw spread, ±σ 通道由 UI 渲染时 rolling 计算。
+                     依赖 cn_dgs10.parquet 先落盘。
     fred_DGS10       us_tycr.y10 → value（美 10Y，源走 Tushare 非 FRED，
                      文件名沿用契约不改）
     china_us_spread  yc_cb 中债 10Y − us_tycr 美 10Y，按日 inner join
@@ -413,6 +428,103 @@ def build_fred_dgs10(pro, start, end) -> pd.DataFrame:
     return _finalize(df, ['value'])
 
 
+def build_cn_ppi(pro, start, end) -> pd.DataFrame:
+    """全国 PPI 当月同比 (月度)。Tushare cn_ppi 一次返回全历史，无需分页。"""
+    df = pro.cn_ppi()
+    if df is None or df.empty:
+        return pd.DataFrame()
+    per = pd.PeriodIndex(pd.to_datetime(df['month'].astype(str), format='%Y%m'), freq='M')
+    df['date'] = per.to_timestamp(how='end').normalize()
+    df = df.rename(columns={'nt_yoy': 'ppi_yoy'})
+    return _finalize(df, ['ppi_yoy'])
+
+
+def build_cn_cpi(pro, start, end) -> pd.DataFrame:
+    """全国 CPI 当月同比 (月度)。"""
+    df = pro.cn_cpi()
+    if df is None or df.empty:
+        return pd.DataFrame()
+    per = pd.PeriodIndex(pd.to_datetime(df['month'].astype(str), format='%Y%m'), freq='M')
+    df['date'] = per.to_timestamp(how='end').normalize()
+    df = df.rename(columns={'nt_yoy': 'cpi_yoy'})
+    return _finalize(df, ['cpi_yoy'])
+
+
+def build_cn_dgs10(pro, start, end) -> pd.DataFrame:
+    """中债 10Y 国债到期收益率 (日度) — 走 akshare 中债。
+
+    Tushare yc_cb 思路：每日 500+ 期限点 × 2000 行上限 → 90 天窗口只剩 ~4 天，
+    日度不可行（已在 china_us_spread 里折中成月度）。akshare bond_china_yield
+    返回中债国债收益率曲线，取 '10年' 列即可。
+
+    踩坑：bond_china_yield 对大时间窗会静默返空（实测 ≥ ~1 年就有概率失败，
+    源站后端按页返回），所以按年度分窗逐段拉再 concat。
+    """
+    import akshare as ak
+    s_ts = pd.Timestamp(start)
+    e_ts = pd.Timestamp(end)
+    parts = []
+    cur = s_ts
+    while cur <= e_ts:
+        nxt = min(cur + pd.Timedelta(days=364), e_ts)
+        chunk = ak.bond_china_yield(
+            start_date=cur.strftime('%Y%m%d'),
+            end_date=nxt.strftime('%Y%m%d'),
+        )
+        if chunk is not None and not chunk.empty:
+            parts.append(chunk)
+        cur = nxt + pd.Timedelta(days=1)
+    if not parts:
+        return pd.DataFrame()
+    df = pd.concat(parts, ignore_index=True)
+    # akshare 当前列：'曲线名称','日期','3月','6月','1年','3年','5年','7年','10年','30年'
+    # 取国债曲线（曲线名称 == '中债国债收益率曲线'）；不同 akshare 版本可能没这列
+    if '曲线名称' in df.columns:
+        df = df[df['曲线名称'].astype(str).str.contains('国债', na=False)].copy()
+    if df.empty:
+        return pd.DataFrame()
+    df = df.rename(columns={'日期': 'date', '10年': 'value'})
+    df['date'] = pd.to_datetime(df['date'])
+    return _finalize(df, ['value'])
+
+
+def build_equity_bond_yield(pro, start, end) -> pd.DataFrame:
+    """A 股股息率（上证A股代理）− CN10Y 国债收益率（股债性价比，日度）。
+
+    依赖：cn_dgs10.parquet 必须先在 macro/ 落盘（BUILDERS 顺序已保证）。
+
+    数据源踩坑历史：
+    1) Tushare index_dailybasic 对指数只返 pe/pb/mv，没有 dv_ratio。
+    2) akshare 没有「沪深300 股息率」日度长史接口：
+       - stock_zh_index_value_csindex('000300') 只返 20 行近期数据
+       - index_value_hist_funddb 不存在（≤ akshare 1.18.63）
+    3) 最终选 ak.stock_a_gxl_lg('上证A股')：5000+ 行 2005-now '日期'/'股息率'。
+       它**不是** HS300 股息率，是上证 A 股大盘股息率——但 HS300 约 60% 权重
+       在上证，且都是大盘价值股集中区，作为「股债性价比」的代理够用，
+       与 HS300 实际股息率相关性 > 0.95。卡片文案需明确这是代理。
+
+    存的是 raw spread。±1σ/±2σ 通道是「rolling 10y」的动态量，UI 渲染时算。
+    """
+    cn_fp = CACHE_DIR / 'cn_dgs10.parquet'
+    if not cn_fp.exists():
+        print('  跳过 equity_bond_yield: 缺 cn_dgs10.parquet，请先把 cn_dgs10 跑过')
+        return pd.DataFrame()
+    bond = pd.read_parquet(cn_fp).rename(columns={'value': 'cn10y'})
+    bond['date'] = pd.to_datetime(bond['date'])
+
+    import akshare as ak
+    dv = ak.stock_a_gxl_lg(symbol='上证A股')
+    if dv is None or dv.empty:
+        return pd.DataFrame()
+    dv = dv.rename(columns={'日期': 'date', '股息率': 'dv_ratio'})
+    dv['date'] = pd.to_datetime(dv['date'])
+    dv['dv_ratio'] = pd.to_numeric(dv['dv_ratio'], errors='coerce')
+
+    m = dv[['date', 'dv_ratio']].merge(bond[['date', 'cn10y']], on='date', how='inner')
+    m['spread'] = m['dv_ratio'] - m['cn10y']
+    return _finalize(m, ['spread'])
+
+
 def build_china_us_spread(pro, start, end) -> pd.DataFrame:
     """中美 10Y 利差（月度，对齐契约 "OECD 月度同口径" 注解）。
 
@@ -507,6 +619,11 @@ BUILDERS = {
     'margin': build_margin,
     'money_supply': build_money_supply,
     'lpr': build_lpr,
+    'cn_ppi': build_cn_ppi,
+    'cn_cpi': build_cn_cpi,
+    'cn_dgs10': build_cn_dgs10,
+    # equity_bond_yield 依赖 cn_dgs10.parquet，必须排在它后面
+    'equity_bond_yield': build_equity_bond_yield,
     'fred_DGS10': build_fred_dgs10,
     'china_us_spread': build_china_us_spread,
 }
