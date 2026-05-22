@@ -51,9 +51,13 @@ ORDER BY date ASC`，并把除 date 外每列 `Number(v)` —— 所以每个 pa
                        返回的不是真实净流入（实测每天恒定 ~+9万 百万元 垃圾值），
                        cumsum 会冲到 ~90 万亿元。所以 ≤ 2024-08-16 截断，
                        parquet 到此为止（不是补 0 补持平——那等于撒谎说还在该水位）。
-    north_hold_q     纯本地聚合：holders/<ts>.parquet 的 northbound_hold_pct
-                     × daily_basic/<ts>.parquet 的 total_mv，按 end_date 汇总。
-                     不调 Tushare（pull_holders 已落数）。季度颗粒。
+    north_hold_q     黄金口径 Σ(vol × close) — 每季末 pro.hk_hold(trade_date)
+                     拿到全市场 vol，pro.daily(trade_date) 拿到全市场 close，
+                     vol × close 求和 /1e8 → 亿元。每季 ~3 个 Tushare 调用。
+                     ※ 不能用 ratio × total_mv：Tushare hk_hold.ratio 对持限售/
+                       A+H 结构股票分母是「流通A股」而非「总股本」，相乘会高估
+                       ~30%（实测 2026-03-31: 错口径 2.91 万亿 / vol×close 1.97
+                       万亿 / Wind 2.58 万亿）。
     south_money      akshare.stock_hsgt_hist_em('南向资金') 升序累加（百万元）。
                      ※ Tushare moneyflow_hsgt.south_money 2023-11-24 后失效，
                        且 Tushare 无独立"港股通(深)"接口，故走 akshare 东财源。
@@ -370,71 +374,79 @@ def build_south_money(pro, start, end) -> pd.DataFrame:
 
 
 def build_north_hold_q(pro, start, end) -> pd.DataFrame:
-    """北向(陆股通)季度持股市值聚合。
+    """北向(陆股通)季度持股市值 —— 黄金口径 Σ(vol × close)。
 
-    不调 Tushare —— 纯本地聚合两份已有 parquet：
-      • holders/<ts>.parquet     pull_holders.py 落, northbound_hold_pct (%)
-      • daily_basic/<ts>.parquet Tushare daily_basic, total_mv (万元)
+    每个季末:
+      1. quarter_snapshot_dates(pro, start, end)  季末日历日 → 最近 SSE 交易日
+      2. pro.hk_hold(trade_date=td) 分页拉(服务端单页上限 2000), 留 SH/SZ, 丢 HK
+      3. pro.daily(trade_date=td)   全市场当日 close, 单次返回 ~5000 行
+      4. Σ vol × close → 元, /1e8 → 亿元, 落 hold_mv 列
 
-    每只股票按 holders 里的 end_date 在 daily_basic 里 merge_asof 取最近一个
-    trade_date ≤ end_date 的 total_mv，再按季末聚合：
-        hold_mv_万元 = Σᵢ total_mvᵢ × pctᵢ / 100
-    最后 /1e4 → 亿元，符合契约 hold_mv 列。
+    为什么不用 holders.northbound_hold_pct × daily_basic.total_mv:
+      实测 Tushare hk_hold.ratio 对持限售/A+H 结构股票, 分母不是「总股本」
+      而是「流通 A 股」, ratio × total_mv 会高估 ~30%。2026-03-31 实测:
+      错误口径 = 2.91 万亿, 黄金口径(vol × close) = 1.97 万亿, Wind 参考
+      2.58 万亿 (我们偏低主要因 ETF 占位行无 close + 季末停牌票 pro.daily
+      不返回行——这是基础档 Tushare 可达的最准结果)。
 
-    pro / start / end 参数为了和 BUILDERS 签名一致，这里不用。
+    每季 ~3 个 Tushare 调用 (hk_hold 2 页 + daily 1 次), 全量 ~40 季约 120 调用。
     """
-    holders_dir = _data_root() / 'holders'
-    db_dir = _data_root() / 'daily_basic'
-    if not holders_dir.exists() or not db_dir.exists():
+    from pull_holders import quarter_snapshot_dates
+
+    snaps = quarter_snapshot_dates(pro, start, end)
+    if not snaps:
+        print('  north_hold_q: quarter_snapshot_dates 空, 跳过')
+        return pd.DataFrame()
+
+    rows = []
+    for qe, td in snaps:
+        parts: list[pd.DataFrame] = []
+        offset = 0
+        while True:
+            chunk = pro.hk_hold(trade_date=td, offset=offset, limit=2000)
+            if chunk is None or chunk.empty:
+                break
+            parts.append(chunk)
+            if len(chunk) < 2000:
+                break
+            offset += 2000
+            time.sleep(0.4)
+        if not parts:
+            continue
+        hk = pd.concat(parts, ignore_index=True)
+        hk = hk[hk['exchange'].isin(['SH', 'SZ'])].copy()
+        hk['vol'] = pd.to_numeric(hk['vol'], errors='coerce')
+        hk = hk.dropna(subset=['vol'])
+        hk = hk[hk['vol'] > 0]
+        if hk.empty:
+            continue
+
+        day = pro.daily(trade_date=td)
+        if day is None or day.empty:
+            print(f'  north_hold_q {qe.date()} ({td}) pro.daily 空, 跳过')
+            time.sleep(0.4)
+            continue
+        day['close'] = pd.to_numeric(day['close'], errors='coerce')
+        close_map = dict(zip(day['ts_code'], day['close']))
+        hk['close'] = hk['ts_code'].map(close_map)
+        hit = hk.dropna(subset=['close'])
+        if hit.empty:
+            time.sleep(0.4)
+            continue
+
+        hold_yuan = float((hit['vol'] * hit['close']).sum())
+        coverage = len(hit) / len(hk) * 100
         print(
-            f'  跳过 north_hold_q: 缺 holders/ 或 daily_basic/ '
-            f'(holders={holders_dir.exists()}, daily_basic={db_dir.exists()})'
+            f'  north_hold_q {qe.date()} ({td}): {len(hit)}/{len(hk)} 行匹配 '
+            f'({coverage:.0f}% 覆盖), 持股市值 {hold_yuan / 1e12:.3f} 万亿元'
         )
-        return pd.DataFrame()
+        rows.append({'date': qe, 'hold_mv': hold_yuan / 1e8})  # 元 → 亿元
+        time.sleep(0.4)
 
-    pieces = []
-    n_total = n_ok = 0
-    for hf in sorted(holders_dir.glob('*.parquet')):
-        n_total += 1
-        ts = hf.stem
-        db_f = db_dir / f'{ts}.parquet'
-        if not db_f.exists():
-            continue
-        try:
-            hd = pd.read_parquet(hf, columns=['end_date', 'northbound_hold_pct'])
-            db = pd.read_parquet(db_f, columns=['trade_date', 'total_mv'])
-        except Exception:
-            continue
-        if hd.empty or db.empty:
-            continue
-        hd = hd.dropna(subset=['northbound_hold_pct'])
-        hd = hd[hd['northbound_hold_pct'] > 0]
-        if hd.empty:
-            continue
-        hd = hd.rename(columns={'end_date': 'date'})
-        hd['date'] = pd.to_datetime(hd['date'])
-        db = db.rename(columns={'trade_date': 'date'})
-        db['date'] = pd.to_datetime(db['date'])
-        hd = hd.sort_values('date')
-        db = db.sort_values('date').dropna(subset=['total_mv'])
-        if db.empty:
-            continue
-        merged = pd.merge_asof(hd, db, on='date', direction='backward')
-        merged = merged.dropna(subset=['total_mv'])
-        if merged.empty:
-            continue
-        merged['hold_mv_wan'] = merged['total_mv'] * merged['northbound_hold_pct'] / 100.0
-        pieces.append(merged[['date', 'hold_mv_wan']])
-        n_ok += 1
-
-    if not pieces:
-        print(f'  north_hold_q: 0 / {n_total} 文件出数 — 无聚合结果')
+    if not rows:
         return pd.DataFrame()
-    print(f'  north_hold_q: 聚合 {n_ok} / {n_total} 只 A 股的季度持股市值')
-    big = pd.concat(pieces, ignore_index=True)
-    agg = big.groupby('date', as_index=False)['hold_mv_wan'].sum()
-    agg['hold_mv'] = agg['hold_mv_wan'] / 1e4  # 万元 → 亿元
-    return _finalize(agg, ['hold_mv'])
+    df = pd.DataFrame(rows)
+    return _finalize(df, ['hold_mv'])
 
 
 def build_margin(pro, start, end) -> pd.DataFrame:
