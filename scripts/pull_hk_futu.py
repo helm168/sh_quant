@@ -184,7 +184,9 @@ def futu_kline_to_sh_quant(df: pd.DataFrame, ts_code: str) -> pd.DataFrame:
     if df is None or len(df) == 0:
         return pd.DataFrame()
     out = pd.DataFrame()
-    out['trade_date'] = pd.to_datetime(df['time_key']).dt.strftime('%Y-%m-%d')
+    # 用 normalize() 截到午夜的 datetime64，与 A/US 缓存 dtype 一致；
+    # 不用 strftime（那会变 string，跟其他市场拼接时退化成 object 列）。
+    out['trade_date'] = pd.to_datetime(df['time_key']).dt.normalize()
     out['ts_code'] = ts_code
     out['open'] = df['open'].astype(float)
     out['high'] = df['high'].astype(float)
@@ -780,10 +782,7 @@ def main() -> None:
         # 配额提示 (滚动 30 天, 不是按天重置 — 没有"明天就满血"这回事)
         print(f'\n本轮消耗 history_kline slot: {api_used} (30 天滚动账户配额)')
         if quota_failed > 0:
-            print(
-                '⚠️  已撞账户配额上限. 30 天滚动释放, 无次日重置; '
-                'cron 每周一轮自愈, 别每天空跑.'
-            )
+            print('⚠️  已撞账户配额上限. 30 天滚动释放, 无次日重置; cron 每周一轮自愈, 别每天空跑.')
     finally:
         with contextlib.suppress(Exception):
             ctx.close()

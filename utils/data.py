@@ -113,6 +113,10 @@ def load_daily(ts_code: str, start: str, end: str, adj: str | None = 'qfq') -> p
         raise ValueError(f"adj must be one of 'qfq', 'hfq', 'none', or None, got {adj}")
 
     ratio = df['adj_factor'] / base_factor
+    # 注意：Tushare 的 pre_close 不是 raw 的 t-1 close，而是按"当日价格尺度"
+    # 已经缩放过的前收（= raw_close[t-1] × adj_factor[t-1]/adj_factor[t]）。
+    # 所以乘当日 ratio 后正好得到 pre_close_qfq[t] = raw_close[t-1] × adj_factor[t-1]/base，
+    # 跟拿 adjusted close 平移一日完全一致。change 同理。
     for col in ['open', 'high', 'low', 'close', 'pre_close', 'change']:
         df[col] = df[col] * ratio
 

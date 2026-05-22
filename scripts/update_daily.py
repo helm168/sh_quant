@@ -451,7 +451,9 @@ def _fetch_us_via_fmp(ts_code: str, start: str, end: str) -> pd.DataFrame | None
         adj_close = d.get('adjClose')
         rows.append(
             {
-                'trade_date': pd.to_datetime(d.get('date')),
+                # FMP 偶尔返回 "YYYY-MM-DD 12:00:00" 等带时分秒的串（看 ticker 而定），
+                # normalize 到午夜，跟 yfinance/Polygon 路径输出一致。
+                'trade_date': pd.to_datetime(d.get('date')).normalize(),
                 'ts_code': ts_code,
                 'open': d.get('open'),
                 'high': d.get('high'),
@@ -503,6 +505,8 @@ def _fetch_us_via_yfinance(ts_code: str, start: str, end: str) -> pd.DataFrame |
             'Volume': 'vol',
         }
     )
+    # yfinance 偶尔返回非午夜时间戳（TZ aware → naive 转换偏移），统一截到午夜
+    df['trade_date'] = pd.to_datetime(df['trade_date']).dt.normalize()
 
     df['ts_code'] = ts_code
     df['pre_close'] = df['close'].shift(1)
