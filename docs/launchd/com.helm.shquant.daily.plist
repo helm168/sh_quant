@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.helm.shquant.daily</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/helm/Documents/Code/sh_quant/.venv/bin/python</string>
+    <string>/Users/helm/Documents/Code/sh_quant/scripts/update_daily.py</string>
+    <string>--market</string>
+    <string>us,cn</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/helm/Documents/Code/sh_quant</string>
+
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Hour</key><integer>8</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Hour</key><integer>18</integer><key>Minute</key><integer>0</integer></dict>
+  </array>
+
+  <key>StandardOutPath</key>
+  <string>/Users/helm/.market_data/logs/update_daily.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/helm/.market_data/logs/update_daily.err.log</string>
+</dict>
+</plist>

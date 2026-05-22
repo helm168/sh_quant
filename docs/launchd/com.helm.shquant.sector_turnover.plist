@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.helm.shquant.sector_turnover</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/helm/Documents/Code/sh_quant/.venv/bin/python</string>
+    <string>/Users/helm/Documents/Code/sh_quant/scripts/pull_sector_turnover.py</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/helm/Documents/Code/sh_quant</string>
+
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Hour</key><integer>19</integer><key>Minute</key><integer>30</integer></dict>
+  </array>
+
+  <key>StandardOutPath</key>
+  <string>/Users/helm/.market_data/logs/sector_turnover.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/helm/.market_data/logs/sector_turnover.err.log</string>
+</dict>
+</plist>
