@@ -180,7 +180,7 @@ kpis:
     cadence: quarterly
     polarity: higher_is_better
     source: {kind: manual, ref: '季报毛利率拐点 + 产业链调研，人工记'}
-    thesis: 800G/GB200 高多层板 ASP 与大客户份额决定沪电 AI 弹性兑现
+    thesis: 800G/GB200 高多层板 ASP 与大客户份额决定沪电 AI 弹性兑现；2026/5 大摩 Rubin 拆解佐证 PCB/MLCC/ABF 价值结构起飞 (10jqka pid 629029470)
 
   sjsemi_eml_qual:
     name: 源杰 100G/200G EML 客户验证进度
