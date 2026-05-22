@@ -32,7 +32,8 @@ F = 占比(今) − 占比(N 日前)。500 只 × 30 天 × 3 市场拉到浏览
 
 历史深度
 ────────
-默认 lookback=95 个自然日 (覆盖前端最长 N=30 + 双倍 buffer)。每日 cron 跑
+默认 lookback=180 自然日 ≈ 120 交易日 (覆盖前端最长 N=60 + buffer; 注意
+spec 「≥90 天」是交易日, 95 自然日只能拿 ~65 交易日, 不够)。每日 cron 跑
 完后 parquet 整文件 rewrite (~30 KB US / ~80 KB CN, 全量重算便宜过 append
 + dedupe)。
 
@@ -154,8 +155,9 @@ def _validate(market: str, df: pd.DataFrame) -> list[str]:
         errs.append(f'cols mismatch: got {list(df.columns)} want {expected_cols}')
 
     n_dates = df['date'].nunique()
-    if n_dates < 5:
-        errs.append(f'date count too low: {n_dates} (universe 个股可能没历史)')
+    if n_dates < 90:
+        errs.append(f'date count too low: {n_dates} 交易日 < 90 (spec hard floor); '
+                    f'调大 --days 或检查 stocks/*.parquet 深度')
 
     # sector set 与 universe 等价 (允许 history 是 universe 的子集 —— 某些 sector
     # 在窗口内全员停牌, 但反方向不许)
@@ -179,8 +181,8 @@ def main() -> int:
     p = argparse.ArgumentParser(description='按日板块成交额预聚合 (HEAT-8 ③)')
     p.add_argument('--markets', default='cn,us,hk',
                    help='逗号分隔 (cn,us,hk), 默认全部')
-    p.add_argument('--days', type=int, default=95,
-                   help='lookback 自然日, 默认 95 (覆盖 N=30 + buffer)')
+    p.add_argument('--days', type=int, default=180,
+                   help='lookback 自然日, 默认 180 ≈ 120 交易日 (覆盖 N=60 + buffer)')
     p.add_argument('--validate-only', action='store_true',
                    help='只对已落盘文件跑验收, 不重建')
     args = p.parse_args()
