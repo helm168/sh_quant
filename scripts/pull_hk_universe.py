@@ -44,7 +44,12 @@ board 列把 RMB 双柜台（8 字头，e.g. 80700 = 00700 腾讯的人民币柜
     data_cache/universe/cn_hk.parquet
         列: ts_code (00700.HK), symbol (00700), name (腾讯控股, Tushare 中文),
             market (cn_hk), exchange (HKEX), currency (HKD), list_date,
-            market_cap (亿港元, Futu), board (MAIN/GEM/RMB_COUNTER), snapshot_date
+            market_cap (亿港元, Futu), board (MAIN/GEM/RMB_COUNTER),
+            sector (Yahoo GICS), industry (Yahoo GICS), snapshot_date
+
+        sector/industry 来自 Yahoo Finance summaryProfile（HEAT-5 大盘云图
+        三级分层用），增量缓存在 data_cache/hk_industry_map.parquet，
+        --refresh-industry 强制重拉。
 
 下一步
 ──────
@@ -60,9 +65,15 @@ import contextlib
 import os
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import pandas as pd
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))  # noqa: E402
+
+from utils.industry_consistency import assert_consistency, resolve_industry_sector  # noqa: E402
 
 try:
     from futu import (
@@ -76,9 +87,11 @@ try:
 except ImportError:
     sys.exit('futu-api 没装. 跑: pip install futu-api')
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CACHE_DIR_UNIVERSE = PROJECT_ROOT / 'data_cache' / 'universe'
 OUT_FILE = CACHE_DIR_UNIVERSE / 'cn_hk.parquet'
+
+# Yahoo HK 行业 cache（增量更新，单次跑 2700 只 ~30-40 分钟，命中后秒级）
+HK_INDUSTRY_CACHE = PROJECT_ROOT / 'data_cache' / 'hk_industry_map.parquet'
 
 HOST = '127.0.0.1'
 PORT = 11111
@@ -197,6 +210,168 @@ def fetch_tushare_hk_names() -> pd.DataFrame:
     return df[['ts_code', 'name', 'list_date']]
 
 
+def _ts_code_to_yahoo(ts_code: str) -> str | None:
+    """sh_quant '00700.HK' → Yahoo '0700.HK'。
+
+    HK 主柜台 ts_code 是 5 位零填充（'00700.HK'），Yahoo 用 4 位（'0700.HK'）。
+    RMB 双柜台（80700 / 8 字头）Yahoo 没有独立条目，跳过，返回 None。
+    """
+    symbol = ts_code.split('.')[0]
+    try:
+        n = int(symbol)
+    except ValueError:
+        return None
+    # RMB 双柜台没法直接查 Yahoo；走主柜台路径太脏，留 NaN（前端归 "—"）
+    if 80000 <= n <= 89999:
+        return None
+    # 标准化 4 位（HK Yahoo 约定）
+    return f'{n:04d}.HK'
+
+
+def _fetch_one_yahoo(ts_code: str, *, max_retries: int = 3) -> dict:
+    """单只港股 Yahoo summaryProfile.{sector, industry}。
+
+    Yahoo 经常 429 限流（YFRateLimitError），重试 max_retries 次，每次指数退避。
+    限流外的失败立即返回空。RMB 双柜台（8xxxx）跳过，由调用方走主柜台继承。
+    """
+    yahoo_code = _ts_code_to_yahoo(ts_code)
+    if yahoo_code is None:
+        return {'ts_code': ts_code, 'sector': None, 'industry': None}
+    import yfinance as yf
+
+    last_err = ''
+    for attempt in range(max_retries):
+        try:
+            info = yf.Ticker(yahoo_code).info or {}
+            return {
+                'ts_code': ts_code,
+                'sector': info.get('sector') or None,
+                'industry': info.get('industry') or None,
+            }
+        except Exception as e:  # noqa: BLE001
+            last_err = f'{type(e).__name__}: {e}'[:80]
+            if 'RateLimit' in type(e).__name__ or '429' in str(e) or 'Too Many' in str(e):
+                # 指数退避 + 抖动
+                time.sleep(2 ** attempt + (attempt * 0.3))
+                continue
+            break
+    return {'ts_code': ts_code, 'sector': None, 'industry': None, '_err': last_err}
+
+
+def _inherit_rmb_counter(df: pd.DataFrame) -> pd.DataFrame:
+    """RMB 双柜台（80700.HK）继承主柜台（00700.HK）的 sector/industry。
+
+    Yahoo 没收 8xxxx 双柜台条目，但它们跟主柜台是同一家公司，必须用同样的分类，
+    否则前端 treemap 会出空桶。
+    """
+    df = df.copy()
+
+    def _main_code(ts: str) -> str | None:
+        sym = ts.split('.')[0]
+        try:
+            n = int(sym)
+        except ValueError:
+            return None
+        if 80000 <= n <= 89999:
+            # 8XXXX → 0XXXX（5 位零填充）
+            return f'{n - 80000:05d}.HK'
+        return None
+
+    df['_main'] = df['ts_code'].map(_main_code)
+    main_map = df.set_index('ts_code')[['sector', 'industry']]
+    mask = df['_main'].notna() & df['sector'].isna()
+    n_filled = 0
+    for idx in df[mask].index:
+        main_ts = df.at[idx, '_main']
+        if main_ts in main_map.index:
+            df.at[idx, 'sector'] = main_map.at[main_ts, 'sector']
+            df.at[idx, 'industry'] = main_map.at[main_ts, 'industry']
+            if pd.notna(df.at[idx, 'sector']):
+                n_filled += 1
+    if n_filled:
+        print(f'  RMB 双柜台继承主柜台: {n_filled} 只补齐 sector/industry')
+    return df.drop(columns=['_main'])
+
+
+def fetch_hk_industries(
+    ts_codes: list[str],
+    *,
+    refresh: bool,
+    workers: int = 2,
+) -> pd.DataFrame:
+    """ts_code 列表 → DataFrame(ts_code, sector, industry)，磁盘 cache 增量更新。
+
+    首次跑 ~2700 票 × ~0.5-1s/票 ≈ 25-45 分钟（yfinance 内部限流，并发收益有限）。
+    后续 cron 跑：cache 已有的直接跳过，只补新上市，秒级完成。
+    """
+    try:
+        import yfinance  # noqa: F401
+    except ImportError:
+        sys.exit('yfinance 没装. 跑: uv pip install yfinance')
+
+    if HK_INDUSTRY_CACHE.exists() and not refresh:
+        cached = pd.read_parquet(HK_INDUSTRY_CACHE)
+    else:
+        cached = pd.DataFrame(columns=['ts_code', 'sector', 'industry'])
+
+    # 已缓存但 sector 为空 → 上次拉失败（多半 429），这次重试。
+    # RMB 双柜台（_ts_code_to_yahoo 返回 None）Yahoo 永远查不到，留 cache 不重试，
+    # 后面统一靠 _inherit_rmb_counter 从主柜台继承。
+    cached_hit = cached['sector'].notna()
+    cached_rmb = cached['ts_code'].map(_ts_code_to_yahoo).isna()
+    keep_cached_set = set(cached.loc[cached_hit | cached_rmb, 'ts_code'].tolist())
+    todo = [c for c in ts_codes if c not in keep_cached_set]
+    cached = cached[cached['ts_code'].isin(keep_cached_set)]
+    if not todo:
+        print(f'  Yahoo 行业映射: 全命中缓存 ({len(cached)} 条)')
+        return cached
+
+    print(
+        f'  Yahoo 行业映射: 缓存 {len(keep_cached_set)} 条命中, '
+        f'本轮拉 {len(todo)} 只新增/--refresh 票（耗时约 {len(todo) * 0.5 / 60:.0f}-'
+        f'{len(todo) / 60:.0f} 分钟）',
+    )
+
+    new_rows: list[dict] = []
+    n_err = 0
+    n_done = 0
+    t0 = time.time()
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futures = {ex.submit(_fetch_one_yahoo, c): c for c in todo}
+        for fut in as_completed(futures):
+            row = fut.result()
+            if row.get('_err'):
+                n_err += 1
+            row.pop('_err', None)
+            new_rows.append(row)
+            n_done += 1
+            if n_done % 100 == 0:
+                elapsed = time.time() - t0
+                rate = n_done / elapsed if elapsed > 0 else 0
+                eta = (len(todo) - n_done) / rate if rate > 0 else 0
+                print(
+                    f'    {n_done}/{len(todo)} ({rate:.1f}/s, ETA {eta / 60:.1f} min, '
+                    f'err {n_err})',
+                )
+
+    new = pd.DataFrame(new_rows)
+    new = new[['ts_code', 'sector', 'industry']]  # 丢 _err，不进 cache
+    combined = pd.concat([cached, new], ignore_index=True).drop_duplicates(
+        subset='ts_code', keep='last'
+    )
+    # RMB 双柜台从主柜台继承
+    combined = _inherit_rmb_counter(combined)
+    HK_INDUSTRY_CACHE.parent.mkdir(parents=True, exist_ok=True)
+    combined.to_parquet(HK_INDUSTRY_CACHE, index=False)
+    n_hit = combined['sector'].notna().sum()
+    print(
+        f'  Yahoo 行业映射: {n_hit}/{len(combined)} 命中 sector/industry, '
+        f'{n_err} 只本轮接口失败 (重试 cache 留空), 已写 '
+        f'{HK_INDUSTRY_CACHE.relative_to(PROJECT_ROOT)}',
+    )
+    return combined
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description='生成港股标的池（Futu get_stock_filter）')
     ap.add_argument(
@@ -206,6 +381,16 @@ def main() -> None:
         help='最低市值（亿港元，默认 10 = 10 亿港元；0 = 全集含微盘）',
     )
     ap.add_argument('--out', default=str(OUT_FILE), help='输出 parquet 路径')
+    ap.add_argument(
+        '--refresh-industry',
+        action='store_true',
+        help='强制重拉 Yahoo sector/industry 映射（默认走 hk_industry_map.parquet 增量缓存）',
+    )
+    ap.add_argument(
+        '--skip-industry',
+        action='store_true',
+        help='跳过 Yahoo 行业 overlay（调试用；正常 build 不要传，HEAT-5 合同要求两列填充率 ≥ 90%）',
+    )
     args = ap.parse_args()
 
     print(f'[Futu] connecting to {HOST}:{PORT} ...')
@@ -242,6 +427,15 @@ def main() -> None:
         f'{f", {n_fallback} 只回退 Futu 英文 (RMB 柜台/新股/Tushare 缺失)" if n_fallback else ""}'
     )
 
+    # Yahoo summaryProfile sector/industry overlay（HEAT-5 大盘云图三级分层）
+    if not args.skip_industry:
+        ind = fetch_hk_industries(df['ts_code'].tolist(), refresh=args.refresh_industry)
+        df = df.merge(ind, on='ts_code', how='left')
+    else:
+        print('  ⚠ --skip-industry 跳过 Yahoo 行业，HEAT-5 合同将失败')
+        df['sector'] = None
+        df['industry'] = None
+
     keep_cols = [
         'ts_code',
         'symbol',
@@ -252,9 +446,19 @@ def main() -> None:
         'list_date',
         'market_cap',
         'board',
+        'sector',
+        'industry',
         'snapshot_date',
     ]
     out = df[keep_cols].copy()
+
+    # HEAT-5 验收：sector / industry 一致性 + 填充率
+    # 注：RMB 双柜台 + 微盘新股 sector/industry 会留 NaN，--min-mv 默认 10 亿
+    # 已经把大部分长尾过滤掉，填充率应能过 90%。HK 恒生分类未直接用 Yahoo 给的
+    # GICS 体系（Yahoo HK 也走 GICS），所以下限 15 个 industry 是 HEAT-5 合同写死的
+    if not args.skip_industry:
+        out = resolve_industry_sector(out, market='HK')
+        assert_consistency(out, market='HK', min_distinct_industries=15)
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)

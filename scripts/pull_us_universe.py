@@ -52,6 +52,10 @@ import pandas as pd
 import requests
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))  # noqa: E402
+
+from utils.industry_consistency import assert_consistency, resolve_industry_sector  # noqa: E402
+
 CACHE_DIR_UNIVERSE = PROJECT_ROOT / 'data_cache' / 'universe'
 OUT_FILE = CACHE_DIR_UNIVERSE / 'us.parquet'
 
@@ -212,6 +216,10 @@ def main() -> None:
         if c in df.columns
     ]
     out = df[keep_cols].copy()
+
+    # HEAT-5 验收：sector / industry 一致性 + 填充率
+    out = resolve_industry_sector(out, market='US')
+    assert_consistency(out, market='US', min_distinct_industries=25)
 
     # 写出
     out_path = Path(args.out)

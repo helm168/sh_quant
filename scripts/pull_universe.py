@@ -47,10 +47,14 @@ TUSHARE_TOKEN（.env 里）
 输出
 ────
     data_cache/universe/cn_a.parquet
-        列: ts_code, symbol, name, area, industry, market, exchange,
-            list_date, total_mv (亿元), circ_mv (亿元), pe, pe_ttm, pb,
-            ps, ps_ttm, dv_ratio, dv_ttm, total_share, float_share,
-            turnover_rate, snapshot_date
+        列: ts_code, symbol, name, area, sector (SW L1), industry (SW L2),
+            market, exchange, list_date, total_mv (亿元), circ_mv (亿元),
+            pe, pe_ttm, pb, ps, ps_ttm, dv_ratio, dv_ttm, total_share,
+            float_share, turnover_rate, snapshot_date
+
+        注：sector/industry 是申万 2021 体系（HEAT-5 大盘云图三级分层用），
+        通过 Tushare index_member 拉每个 L2 行业的成员 join。前置依赖：
+        scripts/pull_sw_industries.py 已落盘 sw_l1/sw_l2/_industries.parquet。
 
 接下来怎么用清单拉历史
 ─────────────────────
@@ -65,12 +69,20 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import time
 from pathlib import Path
 
 import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))  # noqa: E402
+
+from utils.industry_consistency import assert_consistency, resolve_industry_sector  # noqa: E402
+
 CACHE_DIR_UNIVERSE = PROJECT_ROOT / 'data_cache' / 'universe'
+SW_MEMBER_CACHE = PROJECT_ROOT / 'data_cache' / 'sw_member_map.parquet'
+SW_L1_META = PROJECT_ROOT / 'data_cache' / 'sw_l1' / '_industries.parquet'
+SW_L2_META = PROJECT_ROOT / 'data_cache' / 'sw_l2' / '_industries.parquet'
 
 OUT_FILE = CACHE_DIR_UNIVERSE / 'cn_a.parquet'
 
@@ -139,15 +151,84 @@ def latest_trade_date_with_data(pro, max_lookback: int = 10) -> str:
 most_recent_trade_date = latest_trade_date_with_data
 
 
-def fetch_universe(pro, trade_date: str) -> pd.DataFrame:
-    """拿 A 股基础信息 + 当日市值快照，merge 后返回。"""
+def _fetch_sw_member_map(pro, *, refresh: bool = False) -> pd.DataFrame:
+    """构建 ts_code → (sw_l1_name, sw_l2_name) 映射。
+
+    走 Tushare index_member(index_code=L2_code) 逐个 L2 拉成员，取当前在册
+    （out_date 为空）的 con_code。L2 ~134 个，串行调用，给本地 parquet 缓存
+    避免重复消耗 Tushare 积分。
+
+    返回列: ts_code, sector (SW L1 name), industry (SW L2 name)
+    """
+    if SW_MEMBER_CACHE.exists() and not refresh:
+        cached = pd.read_parquet(SW_MEMBER_CACHE)
+        print(f'  SW 成员映射: 命中缓存 ({len(cached)} 条, --refresh-sw 强制重拉)')
+        return cached
+
+    print('  SW 成员映射: 缓存缺失或 --refresh-sw，逐个 L2 拉 index_member...')
+
+    # 1) L1 meta：用 index_classify 拿 ts_code + industry_code 双列（L1 _industries
+    # 里没存 industry_code，只能现拉一次）
+    l1_classify = safe_call(pro, 'index_classify', level='L1', src='SW2021')
+    if l1_classify is None or l1_classify.empty:
+        sys.exit('index_classify(L1) 返回空，无法拿 SW L1 行业表。')
+    l1_map = dict(zip(l1_classify['industry_code'], l1_classify['industry_name']))
+
+    # 2) L2 meta（本地）
+    l2_raw = pd.read_parquet(SW_L2_META)
+    l2_codes = l2_raw['ts_code'].tolist()
+    l2_to_name = dict(zip(l2_raw['ts_code'], l2_raw['industry_name']))
+    l2_to_parent = dict(zip(l2_raw['ts_code'], l2_raw['parent_code']))
+
+    # 3) 逐个 L2 拉成员
+    rows: list[dict] = []
+    for i, l2_code in enumerate(l2_codes, 1):
+        try:
+            df = safe_call(pro, 'index_member', index_code=l2_code)
+        except PermissionError_ as e:
+            sys.exit(f'index_member({l2_code}) 权限不足: {e}')
+        if df is None or df.empty:
+            continue
+        # 只要当前在册的（out_date 空）
+        if 'out_date' in df.columns:
+            df = df[df['out_date'].isna() | (df['out_date'] == '')]
+        l2_name = l2_to_name[l2_code]
+        l1_name = l1_map.get(l2_to_parent[l2_code], None)
+        for ts_code in df['con_code'].unique():
+            rows.append({'ts_code': ts_code, 'sector': l1_name, 'industry': l2_name})
+        if i % 20 == 0:
+            print(f'    {i}/{len(l2_codes)} L2 完成')
+        time.sleep(0.05)  # Tushare 没具体节流，给个小间隔保险
+
+    if not rows:
+        sys.exit('SW 成员映射全空，可能是 Tushare index_member 权限不足。')
+
+    member = pd.DataFrame(rows)
+    # 同一只股票理论上只属于一个 L2；若 Tushare 返回有重叠（历史合并/分拆），
+    # 保留首条
+    member = member.drop_duplicates(subset='ts_code', keep='first').reset_index(drop=True)
+    SW_MEMBER_CACHE.parent.mkdir(parents=True, exist_ok=True)
+    member.to_parquet(SW_MEMBER_CACHE, index=False)
+    print(f'  SW 成员映射: {len(member)} 条已写 {SW_MEMBER_CACHE.relative_to(PROJECT_ROOT)}')
+    return member
+
+
+def fetch_universe(pro, trade_date: str, *, refresh_sw: bool = False) -> pd.DataFrame:
+    """拿 A 股基础信息 + 当日市值快照 + SW L1/L2 行业，merge 后返回。
+
+    industry 列含义已切换：从 Tushare stock_basic 的自由文本 industry
+    （~106 个非标准分类）改为 SW L2 行业名（HEAT-5 要求三级 treemap）。
+    sector 列新增：SW L1 行业名。
+    """
     # 1) 上市状态 L 的全 A 股（包含主板/创业/科创/北交所）
+    # 注意：stock_basic 自带的 industry 是 Tushare 自由文本，跟 SW 体系不一致，
+    # 不取。下面用 index_member 自己 join SW L1/L2。
     basic = safe_call(
         pro,
         'stock_basic',
         exchange='',
         list_status='L',
-        fields='ts_code,symbol,name,area,industry,market,exchange,list_date',
+        fields='ts_code,symbol,name,area,market,exchange,list_date',
     )
     if basic is None or basic.empty:
         sys.exit('stock_basic 返回空。')
@@ -171,6 +252,11 @@ def fetch_universe(pro, trade_date: str) -> pd.DataFrame:
     daily_basic['circ_mv'] = daily_basic['circ_mv'] / 1e4
 
     df = basic.merge(daily_basic, on='ts_code', how='inner')
+
+    # 3) SW L1/L2 行业 overlay（HEAT-5：sector=SW L1, industry=SW L2）
+    sw_map = _fetch_sw_member_map(pro, refresh=refresh_sw)
+    df = df.merge(sw_map, on='ts_code', how='left')
+
     df['snapshot_date'] = pd.to_datetime(trade_date, format='%Y%m%d')
     return df.reset_index(drop=True)
 
@@ -189,6 +275,11 @@ def main() -> None:
         '--trade-date', default='', help='市值快照日 YYYYMMDD（默认最近有数据的交易日）'
     )
     ap.add_argument('--out', default=str(OUT_FILE), help='输出 parquet 路径')
+    ap.add_argument(
+        '--refresh-sw',
+        action='store_true',
+        help='强制重拉 SW L2 成员映射（默认走 data_cache/sw_member_map.parquet 缓存）',
+    )
     args = ap.parse_args()
 
     try:
@@ -208,7 +299,7 @@ def main() -> None:
     # 2) 拉数据
     print('\n拉 stock_basic + daily_basic...')
     try:
-        df = fetch_universe(pro, trade_date)
+        df = fetch_universe(pro, trade_date, refresh_sw=args.refresh_sw)
     except PermissionError_ as e:
         sys.exit(f'权限/积分不足: {e}')
 
@@ -218,7 +309,13 @@ def main() -> None:
     filtered = df[df['total_mv'] >= args.min_mv].reset_index(drop=True)
     print(f'  市值 ≥ {args.min_mv} 亿: {len(filtered)} 只 (剔除 {n0 - len(filtered)} 只)')
 
-    # 4) 写出
+    # 4) HEAT-5 验收：sector / industry 一致性 + 填充率
+    filtered = resolve_industry_sector(filtered, market='CN')
+    # SW L1 28 个，SW L2 ~100 个；index_member 实际能 join 上的 distinct L2
+    # 数量取决于 universe 覆盖面，30 是 HEAT-5 合同里的下限
+    assert_consistency(filtered, market='CN', min_distinct_industries=30)
+
+    # 5) 写出
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     filtered.to_parquet(out_path, index=False)
