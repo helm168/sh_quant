@@ -1093,8 +1093,18 @@ def update_one(ts_code: str, lookback_days: int, cache_dir: Path, force: bool) -
     # 合并去重
     merged = pd.concat([old, df_new], ignore_index=True) if old is not None else df_new
 
+    # 防线: 单个 parquet 应该只属于当前 ts_code; 拒绝任何错 ts_code 行
+    # (vendor 返回错代码 / 历史污染), 避免静默覆盖好数据。
+    if 'ts_code' in merged.columns:
+        wrong = merged[merged['ts_code'] != ts_code]
+        if len(wrong):
+            raise RuntimeError(
+                f'{ts_code}: parquet 含异质 ts_code 行 {wrong["ts_code"].unique().tolist()},'
+                f' 拒绝写盘 (人工排查 cache 文件 {fp})'
+            )
+
     merged = (
-        merged.drop_duplicates(subset='trade_date', keep='last')
+        merged.drop_duplicates(subset=['ts_code', 'trade_date'], keep='last')
         .sort_values('trade_date')
         .reset_index(drop=True)
     )
@@ -1136,7 +1146,7 @@ def _data_changed(merged: pd.DataFrame, old: pd.DataFrame) -> bool:
     if len(merged) != len(old):
         return True
     old_sorted = (
-        old.drop_duplicates(subset='trade_date', keep='last')
+        old.drop_duplicates(subset=['ts_code', 'trade_date'], keep='last')
         .sort_values('trade_date')
         .reset_index(drop=True)
     )
