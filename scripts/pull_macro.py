@@ -19,6 +19,7 @@
     fx_usdcnh                 value            ※ 离岸人民币
     north_money               north_cum        ※ 截断于 2024-08-16（停披露）
     north_hold_q              hold_mv          ※ 季度，亿元
+    hk_short_position         total_position_hkd_yi  ※ 半月度，亿 HKD (SFC)
     south_money               south_cum        ※ 港股通，南向未停披露
     margin                    margin_bal
     money_supply              m1_yoy, m2_yoy
@@ -37,8 +38,6 @@ ORDER BY date ASC`，并把除 date 外每列 `Number(v)` —— 所以每个 pa
 数据源（都在 Tushare 基础会员，无 VIP）
 ─────────────────────────────────────
     index_000300.SH  index_daily(000300.SH).close
-    index_399006.SZ  index_daily(399006.SZ).close          创业板指
-    index_000688.SH  index_daily(000688.SH).close          科创50
     index_HSI/SPX    Tushare index_global(HSI/SPX).close   港股大盘 + 标普 500
     index_HSTECH     akshare.stock_hk_index_daily_em('HSTECH').latest
                      ※ Tushare 不收恒科（2020-07 才发布），走 akshare 东财
@@ -51,13 +50,12 @@ ORDER BY date ASC`，并把除 date 外每列 `Number(v)` —— 所以每个 pa
                        返回的不是真实净流入（实测每天恒定 ~+9万 百万元 垃圾值），
                        cumsum 会冲到 ~90 万亿元。所以 ≤ 2024-08-16 截断，
                        parquet 到此为止（不是补 0 补持平——那等于撒谎说还在该水位）。
-    north_hold_q     黄金口径 Σ(vol × close) — 每季末 pro.hk_hold(trade_date)
-                     拿到全市场 vol，pro.daily(trade_date) 拿到全市场 close，
-                     vol × close 求和 /1e8 → 亿元。每季 ~3 个 Tushare 调用。
-                     ※ 不能用 ratio × total_mv：Tushare hk_hold.ratio 对持限售/
-                       A+H 结构股票分母是「流通A股」而非「总股本」，相乘会高估
-                       ~30%（实测 2026-03-31: 错口径 2.91 万亿 / vol×close 1.97
-                       万亿 / Wind 2.58 万亿）。
+    north_hold_q     纯本地聚合：holders/<ts>.parquet 的 northbound_hold_pct
+                     × daily_basic/<ts>.parquet 的 total_mv，按 end_date 汇总。
+                     不调 Tushare（pull_holders 已落数）。季度颗粒。
+    hk_short_position 派生：读 macro/hk_short_position.parquet（由独立 puller
+                     scripts/pull_sfc_short_positions.py 拉 SFC SPR archive）。
+                     半月度颗粒，2012-09 至今。本 builder 不调外部接口。
     south_money      akshare.stock_hsgt_hist_em('南向资金') 升序累加（百万元）。
                      ※ Tushare moneyflow_hsgt.south_money 2023-11-24 后失效，
                        且 Tushare 无独立"港股通(深)"接口，故走 akshare 东财源。
@@ -209,45 +207,23 @@ def _finalize(df: pd.DataFrame, value_cols: list[str]) -> pd.DataFrame:
 
 
 # ─── 各 builder ──────────────────────────────────────────────────────────
-def build_index_000300(pro, start, end) -> pd.DataFrame:
-    df = _paged(
-        lambda s, e: pro.index_daily(ts_code='000300.SH', start_date=s, end_date=e),
-        start,
-        end,
-        365 * 6,
-    )
-    if df.empty:
-        return df
-    df['date'] = _ymd_to_date(df['trade_date'])
-    return _finalize(df, ['close'])
+def _build_index_daily_cn(ts_code: str):
+    """Tushare index_daily builder factory — A 股指数（000300.SH / 399006.SZ / 000688.SH）。"""
+    def builder(pro, start, end) -> pd.DataFrame:
+        df = _paged(
+            lambda s, e: pro.index_daily(ts_code=ts_code, start_date=s, end_date=e),
+            start, end, 365 * 6,
+        )
+        if df.empty:
+            return df
+        df['date'] = _ymd_to_date(df['trade_date'])
+        return _finalize(df, ['close'])
+    return builder
 
 
-def build_index_399006(pro, start, end) -> pd.DataFrame:
-    """创业板指 — Tushare index_daily 直接收."""
-    df = _paged(
-        lambda s, e: pro.index_daily(ts_code='399006.SZ', start_date=s, end_date=e),
-        start,
-        end,
-        365 * 6,
-    )
-    if df.empty:
-        return df
-    df['date'] = _ymd_to_date(df['trade_date'])
-    return _finalize(df, ['close'])
-
-
-def build_index_000688(pro, start, end) -> pd.DataFrame:
-    """科创50 — Tushare index_daily 直接收."""
-    df = _paged(
-        lambda s, e: pro.index_daily(ts_code='000688.SH', start_date=s, end_date=e),
-        start,
-        end,
-        365 * 6,
-    )
-    if df.empty:
-        return df
-    df['date'] = _ymd_to_date(df['trade_date'])
-    return _finalize(df, ['close'])
+build_index_000300 = _build_index_daily_cn('000300.SH')
+build_index_399006 = _build_index_daily_cn('399006.SZ')
+build_index_000688 = _build_index_daily_cn('000688.SH')
 
 
 # 交易所 2024-08-18 起停止披露日度北向净买入。原以为停披露后 Tushare
@@ -262,19 +238,15 @@ def _build_index_global(ts_code: str):
     """Tushare index_global builder。实测可用：HSI / SPX。
     HSTECH（2020-07 发布）、NDX（纳斯达克 100）Tushare 基础会员都不收，
     走 akshare 替代源——见 build_index_HSTECH / build_index_NDX。"""
-
     def builder(pro, start, end) -> pd.DataFrame:
         df = _paged(
             lambda s, e: pro.index_global(ts_code=ts_code, start_date=s, end_date=e),
-            start,
-            end,
-            365 * 3,
+            start, end, 365 * 3,
         )
         if df.empty:
             return df
         df['date'] = _ymd_to_date(df['trade_date'])
         return _finalize(df, ['close'])
-
     return builder
 
 
@@ -285,7 +257,6 @@ def build_index_HSTECH(pro, start, end) -> pd.DataFrame:
     pro / start / end 保留签名一致但不使用（akshare 一次返回全历史）。
     """
     import akshare as ak
-
     df = ak.stock_hk_index_daily_em(symbol='HSTECH')
     if df is None or df.empty:
         return pd.DataFrame()
@@ -301,7 +272,6 @@ def build_index_NDX(pro, start, end) -> pd.DataFrame:
     pro / start / end 保留签名一致但不使用（新浪一次返回全历史）。
     """
     import akshare as ak
-
     df = ak.index_us_stock_sina(symbol='.NDX')
     if df is None or df.empty:
         return pd.DataFrame()
@@ -312,9 +282,7 @@ def build_index_NDX(pro, start, end) -> pd.DataFrame:
 def build_fx_usdcnh(pro, start, end) -> pd.DataFrame:
     df = _paged(
         lambda s, e: pro.fx_daily(ts_code='USDCNH.FXCM', start_date=s, end_date=e),
-        start,
-        end,
-        365 * 3,
+        start, end, 365 * 3,
     )
     if df.empty:
         return df
@@ -327,9 +295,7 @@ def build_fx_usdcnh(pro, start, end) -> pd.DataFrame:
 def build_north_money(pro, start, end) -> pd.DataFrame:
     df = _paged(
         lambda s, e: pro.moneyflow_hsgt(start_date=s, end_date=e),
-        start,
-        end,
-        365 * 3,
+        start, end, 365 * 3,
     )
     if df.empty:
         return df
@@ -360,7 +326,6 @@ def build_south_money(pro, start, end) -> pd.DataFrame:
     pro/start/end 参数保留接口一致但不使用（akshare 一次返回全历史）。
     """
     import akshare as ak
-
     df = ak.stock_hsgt_hist_em(symbol='南向资金')
     if df.empty:
         return df
@@ -374,79 +339,86 @@ def build_south_money(pro, start, end) -> pd.DataFrame:
 
 
 def build_north_hold_q(pro, start, end) -> pd.DataFrame:
-    """北向(陆股通)季度持股市值 —— 黄金口径 Σ(vol × close)。
+    """北向(陆股通)季度持股市值聚合。
 
-    每个季末:
-      1. quarter_snapshot_dates(pro, start, end)  季末日历日 → 最近 SSE 交易日
-      2. pro.hk_hold(trade_date=td) 分页拉(服务端单页上限 2000), 留 SH/SZ, 丢 HK
-      3. pro.daily(trade_date=td)   全市场当日 close, 单次返回 ~5000 行
-      4. Σ vol × close → 元, /1e8 → 亿元, 落 hold_mv 列
+    不调 Tushare —— 纯本地聚合两份已有 parquet：
+      • holders/<ts>.parquet     pull_holders.py 落, northbound_hold_pct (%)
+      • daily_basic/<ts>.parquet Tushare daily_basic, total_mv (万元)
 
-    为什么不用 holders.northbound_hold_pct × daily_basic.total_mv:
-      实测 Tushare hk_hold.ratio 对持限售/A+H 结构股票, 分母不是「总股本」
-      而是「流通 A 股」, ratio × total_mv 会高估 ~30%。2026-03-31 实测:
-      错误口径 = 2.91 万亿, 黄金口径(vol × close) = 1.97 万亿, Wind 参考
-      2.58 万亿 (我们偏低主要因 ETF 占位行无 close + 季末停牌票 pro.daily
-      不返回行——这是基础档 Tushare 可达的最准结果)。
+    每只股票按 holders 里的 end_date 在 daily_basic 里 merge_asof 取最近一个
+    trade_date ≤ end_date 的 total_mv，再按季末聚合：
+        hold_mv_万元 = Σᵢ total_mvᵢ × pctᵢ / 100
+    最后 /1e4 → 亿元，符合契约 hold_mv 列。
 
-    每季 ~3 个 Tushare 调用 (hk_hold 2 页 + daily 1 次), 全量 ~40 季约 120 调用。
+    pro / start / end 参数为了和 BUILDERS 签名一致，这里不用。
     """
-    from pull_holders import quarter_snapshot_dates
-
-    snaps = quarter_snapshot_dates(pro, start, end)
-    if not snaps:
-        print('  north_hold_q: quarter_snapshot_dates 空, 跳过')
+    holders_dir = _data_root() / 'holders'
+    db_dir = _data_root() / 'daily_basic'
+    if not holders_dir.exists() or not db_dir.exists():
+        print(f'  跳过 north_hold_q: 缺 holders/ 或 daily_basic/ '
+              f'(holders={holders_dir.exists()}, daily_basic={db_dir.exists()})')
         return pd.DataFrame()
 
-    rows = []
-    for qe, td in snaps:
-        parts: list[pd.DataFrame] = []
-        offset = 0
-        while True:
-            chunk = pro.hk_hold(trade_date=td, offset=offset, limit=2000)
-            if chunk is None or chunk.empty:
-                break
-            parts.append(chunk)
-            if len(chunk) < 2000:
-                break
-            offset += 2000
-            time.sleep(0.4)
-        if not parts:
+    pieces = []
+    n_total = n_ok = 0
+    for hf in sorted(holders_dir.glob('*.parquet')):
+        n_total += 1
+        ts = hf.stem
+        db_f = db_dir / f'{ts}.parquet'
+        if not db_f.exists():
             continue
-        hk = pd.concat(parts, ignore_index=True)
-        hk = hk[hk['exchange'].isin(['SH', 'SZ'])].copy()
-        hk['vol'] = pd.to_numeric(hk['vol'], errors='coerce')
-        hk = hk.dropna(subset=['vol'])
-        hk = hk[hk['vol'] > 0]
-        if hk.empty:
+        try:
+            hd = pd.read_parquet(hf, columns=['end_date', 'northbound_hold_pct'])
+            db = pd.read_parquet(db_f, columns=['trade_date', 'total_mv'])
+        except Exception:
             continue
+        if hd.empty or db.empty:
+            continue
+        hd = hd.dropna(subset=['northbound_hold_pct'])
+        hd = hd[hd['northbound_hold_pct'] > 0]
+        if hd.empty:
+            continue
+        hd = hd.rename(columns={'end_date': 'date'})
+        hd['date'] = pd.to_datetime(hd['date'])
+        db = db.rename(columns={'trade_date': 'date'})
+        db['date'] = pd.to_datetime(db['date'])
+        hd = hd.sort_values('date')
+        db = db.sort_values('date').dropna(subset=['total_mv'])
+        if db.empty:
+            continue
+        merged = pd.merge_asof(hd, db, on='date', direction='backward')
+        merged = merged.dropna(subset=['total_mv'])
+        if merged.empty:
+            continue
+        merged['hold_mv_wan'] = merged['total_mv'] * merged['northbound_hold_pct'] / 100.0
+        pieces.append(merged[['date', 'hold_mv_wan']])
+        n_ok += 1
 
-        day = pro.daily(trade_date=td)
-        if day is None or day.empty:
-            print(f'  north_hold_q {qe.date()} ({td}) pro.daily 空, 跳过')
-            time.sleep(0.4)
-            continue
-        day['close'] = pd.to_numeric(day['close'], errors='coerce')
-        close_map = dict(zip(day['ts_code'], day['close']))
-        hk['close'] = hk['ts_code'].map(close_map)
-        hit = hk.dropna(subset=['close'])
-        if hit.empty:
-            time.sleep(0.4)
-            continue
-
-        hold_yuan = float((hit['vol'] * hit['close']).sum())
-        coverage = len(hit) / len(hk) * 100
-        print(
-            f'  north_hold_q {qe.date()} ({td}): {len(hit)}/{len(hk)} 行匹配 '
-            f'({coverage:.0f}% 覆盖), 持股市值 {hold_yuan / 1e12:.3f} 万亿元'
-        )
-        rows.append({'date': qe, 'hold_mv': hold_yuan / 1e8})  # 元 → 亿元
-        time.sleep(0.4)
-
-    if not rows:
+    if not pieces:
+        print(f'  north_hold_q: 0 / {n_total} 文件出数 — 无聚合结果')
         return pd.DataFrame()
-    df = pd.DataFrame(rows)
-    return _finalize(df, ['hold_mv'])
+    print(f'  north_hold_q: 聚合 {n_ok} / {n_total} 只 A 股的季度持股市值')
+    big = pd.concat(pieces, ignore_index=True)
+    agg = big.groupby('date', as_index=False)['hold_mv_wan'].sum()
+    agg['hold_mv'] = agg['hold_mv_wan'] / 1e4   # 万元 → 亿元
+    return _finalize(agg, ['hold_mv'])
+
+
+def build_hk_short_position(pro, start, end) -> pd.DataFrame:
+    """港股空头持仓总量（SFC 半月度）— 派生序列 passthrough。
+
+    数据由独立 puller scripts/pull_sfc_short_positions.py 落到
+    macro/hk_short_position.parquet（puller 直接以契约单位「亿 HKD」写出列
+    total_position_hkd_yi）。本 builder 仅 read+finalize 转发。pro/start/end 未用。
+    """
+    fp = CACHE_DIR / 'hk_short_position.parquet'
+    if not fp.exists():
+        print(f'  跳过 hk_short_position: 缺 {fp}'
+              f'，请先跑 `python scripts/pull_sfc_short_positions.py`')
+        return pd.DataFrame()
+    df = pd.read_parquet(fp)
+    df['date'] = pd.to_datetime(df['date'])
+    return _finalize(df, ['total_position_hkd_yi'])
 
 
 def build_margin(pro, start, end) -> pd.DataFrame:
@@ -520,7 +492,6 @@ def build_cn_dgs10(pro, start, end) -> pd.DataFrame:
     源站后端按页返回），所以按年度分窗逐段拉再 concat。
     """
     import akshare as ak
-
     s_ts = pd.Timestamp(start)
     e_ts = pd.Timestamp(end)
     parts = []
@@ -573,7 +544,6 @@ def build_equity_bond_yield(pro, start, end) -> pd.DataFrame:
     bond['date'] = pd.to_datetime(bond['date'])
 
     import akshare as ak
-
     dv = ak.stock_a_gxl_lg(symbol='上证A股')
     if dv is None or dv.empty:
         return pd.DataFrame()
@@ -627,9 +597,10 @@ def build_china_us_spread(pro, start, end) -> pd.DataFrame:
         s = (me - pd.Timedelta(days=12)).strftime('%Y%m%d')
         e = me.strftime('%Y%m%d')
         df = _call(
-            lambda a, b: pro.yc_cb(ts_code='1001.CB', curve_type='0', start_date=a, end_date=b),
-            s,
-            e,
+            lambda a, b: pro.yc_cb(
+                ts_code='1001.CB', curve_type='0', start_date=a, end_date=b
+            ),
+            s, e,
         )
         time.sleep(3.2)
         if df is None or df.empty:
@@ -645,7 +616,11 @@ def build_china_us_spread(pro, start, end) -> pd.DataFrame:
     if cn_new.empty:
         return old if not old.empty else pd.DataFrame()
 
-    us_m = us.set_index('date')['us10y'].resample('ME').last().reset_index()
+    us_m = (
+        us.set_index('date')['us10y']
+        .resample('ME').last()
+        .reset_index()
+    )
     us_m['date'] = us_m['date'].dt.normalize()
     m = cn_new.merge(us_m, on='date', how='inner')
     m['spread'] = m['cn10y'] - m['us10y']
@@ -673,6 +648,7 @@ BUILDERS = {
     'fx_usdcnh': build_fx_usdcnh,
     'north_money': build_north_money,
     'north_hold_q': build_north_hold_q,
+    'hk_short_position': build_hk_short_position,
     'south_money': build_south_money,
     'margin': build_margin,
     'money_supply': build_money_supply,
@@ -719,9 +695,9 @@ def main() -> int:
 
     ok: list[dict] = []
     perm_denied: list[tuple[str, str]] = []  # 权限/积分 → 需换数据源
-    failed: list[tuple[str, str]] = []  # 其他错（接口异常/网络/解析）
-    empties: list[str] = []  # 接口成功但无数据
-    guarded: list[tuple[str, str]] = []  # 行数退化保护
+    failed: list[tuple[str, str]] = []        # 其他错（接口异常/网络/解析）
+    empties: list[str] = []                   # 接口成功但无数据
+    guarded: list[tuple[str, str]] = []       # 行数退化保护
     n = len(names)
     for i, name in enumerate(names, 1):
         try:
@@ -758,14 +734,8 @@ def main() -> int:
         cols = [c for c in df.columns if c != 'date']
         d0, d1 = df['date'].min().date(), df['date'].max().date()
         print(f'  [{i}/{n}] ok    {name:<17} {len(df):>5} 行  {d0} ~ {d1}  {cols}')
-        ok.append(
-            {
-                'series': name,
-                'rows': len(df),
-                'date_min': df['date'].min(),
-                'date_max': df['date'].max(),
-            }
-        )
+        ok.append({'series': name, 'rows': len(df),
+                   'date_min': df['date'].min(), 'date_max': df['date'].max()})
         time.sleep(args.sleep)
 
     if ok:
