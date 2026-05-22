@@ -106,7 +106,7 @@ def ticker_format(ts_code: str, fmt: str) -> str:
 | `change` | `float` | 涨跌额 | 可选 |
 | `pct_chg` | `float` | 涨跌幅（百分点，不是小数：`5.0` 而非 `0.05`） | 可选 |
 | `vol` | `float` | 成交量。A 股单位"手"，港股/美股单位"股" | ✓ 必有 |
-| `amount` | `float` | 成交额。A 股单位"千元"，港股 HKD 千元，美股 USD 千元 | 可选 |
+| `amount` | `float` | 成交额。A 股单位"千元"（×1000→元）；港股 HKD、美股 USD 直存 raw（×1，无千元约定） | 可选 |
 | `adj_factor` | `float` | 复权因子（不复权时为 1.0） | ✓ 必有（个股/ETF） |
 
 **关键不变量**：
@@ -169,11 +169,11 @@ def ticker_format(ts_code: str, fmt: str) -> str:
 # ❌ 千万别这么算成交额 — 跟"手"概念耦合, 不同源结果不同
 turnover = close * vol * 100    # 你以为 1手=100 但 vendor 可能不是
 
-# ✓ 正确做法 — 用 amount 字段, ×1000 转成元
-turnover = amount * 1000        # A 股 / HKD / USD 一律千元单位
-
-# ✓ 美股 / 港股 走 vendor 直接给的成交额字段时可省 ×1000
-#   (各 vendor 单位有差, 入库时统一规范化到"千元")
+# ✓ 正确做法 — 用 amount 字段, 按市场分别处理
+turnover_cn = amount * 1000     # A 股 Tushare 千元 → 元
+turnover_us = amount            # 美股 FMP/Polygon 直存 USD
+turnover_hk = amount            # 港股 Futu 直存 HKD
+# 各市场单位**不**统一规范化, 消费者拿到 amount 自己按 ts_code 后缀分流
 ```
 
 #### 老的隐式约定（重要历史背景）
@@ -236,7 +236,13 @@ def load_daily(ts_code: str, adj: str | None = None) -> pd.DataFrame:
 
 **adj_factor 更新**：分红/拆股事件触发时，源头会返回**全段历史**的新 adj_factor 序列。增量合并时**用新值覆盖老值**（`keep='last'` 自然实现）。
 
-**港股 / 美股扩展**：efinance 作为主数据源（不限速、无 token），Tushare 仍是 A 股主力。详细 vendor 选择参见 `scripts/update_daily.py` 实现。
+**港股 / 美股扩展**（当前实际通路, 与早期"efinance 主源"方案不同）：
+
+- **A 股 (.SH/.SZ/.BJ)**: Tushare 主 → efinance 备
+- **美股 (.US)**: FMP 主（30+ 年历史）→ Polygon 备（5 年滚动）→ yfinance 兜底
+- **港股 (.HK)**: Futu OpenD —— `get_market_snapshot` 日更（无配额、≤400 码/call）+ `request_history_kline` 回填（滚动 30 天账户配额, 冷启动走 `scripts/pull_hk_futu.py --backfill`）
+
+`amount` 字段语义随源切换: Tushare 千元、FMP/Polygon/yfinance USD raw、Futu HKD raw，**入库不做单位归一**，消费者按 ts_code 后缀分流（见 §3.4）。详细 vendor 选择参见 `scripts/update_daily.py` 实现。
 
 ---
 
