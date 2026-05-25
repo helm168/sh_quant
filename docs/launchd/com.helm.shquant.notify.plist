@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.helm.shquant.notify</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/helm/Documents/Code/sh_quant/.venv/bin/python</string>
+    <string>/Users/helm/Documents/Code/sh_quant/scripts/notify_digest.py</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/helm/Documents/Code/sh_quant</string>
+
+  <!-- 9:50 / 19:55 — 在 pull_signals (9:45/19:45) 之后 5/10 分钟跑 -->
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>50</integer></dict>
+    <dict><key>Hour</key><integer>19</integer><key>Minute</key><integer>55</integer></dict>
+  </array>
+
+  <key>StandardOutPath</key>
+  <string>/Users/helm/.market_data/logs/notify.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/helm/.market_data/logs/notify.err.log</string>
+</dict>
+</plist>

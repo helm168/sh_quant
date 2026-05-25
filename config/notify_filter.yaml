@@ -1,0 +1,34 @@
+# 飞书推送过滤器 — "信号要不要推到面前" 的用户视角配置
+# ─────────────────────────────────────────────────────────
+# 这份配置短期手写, 中期 WealthPilot 「消息中心」UI 写回. 飞书推送和
+# (未来的) UI 展示**共用同一份过滤器**, 不重复逻辑.
+#
+# 过滤规则 (notify_digest.py 实现):
+#   market/sector scope:
+#       level=risk      → 看 push_market_risk
+#       level=watch/op  → 默认推 (大盘/板块的关注/机会面广, 没那么噪音)
+#   stock scope:
+#       level=risk      → 必须 in portfolio (跟你切身相关才报警)
+#       level=watch     → in portfolio OR in opportunity_universe (中性, 两边都收)
+#       level=opportunity → 必须 in opportunity_universe (主题内才看机会)
+
+# ── portfolio: 你的持仓股 ts_code 列表 ──
+# 暂留空, 等 WealthPilot 收藏功能加"持仓"按钮后, 由 UI fill 进来 / 写回这份 yaml.
+# portfolio 空时 stock 级 risk 信号一条都不推 (这是预期行为, 不是 bug).
+portfolio: []
+
+# ── opportunity universe: 在哪些主题里捞机会信号 ──
+# themes.yaml 里的 theme id; utils/themes.get_codes(theme_id) 展开成 ts_code 列表.
+# v1: AI 算力链 + 半导设备 (上游联动强).
+opportunity_themes:
+  - ai_compute
+  - semi_equipment
+
+# ── 全市场/板块级别的 risk 信号开关 ──
+# 用户当前选择: 不推 (大盘风险太宽泛, 想要的是 portfolio 切身相关的风险)
+push_market_risk: false
+
+# ── 个股级别 risk 信号的范围 ──
+# true  = 只推 portfolio 内的; portfolio 空时一条不推
+# false = 全市场 risk 都推 (噪音大, 不建议)
+risk_portfolio_only: true
