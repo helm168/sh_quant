@@ -1,0 +1,115 @@
+# Signal Engine 阈值配置 (v1)
+# ---------------------------------------------------------------
+# 所有阈值集中在此文件; rule 代码不写硬编码数字 (除非是 0 / 100 / 边界).
+# v1 数字是经验值, 未做回测校准 (PRD §6.5). 调阈值不动代码.
+#
+# 改阈值后无需重启任何东西, 下一次 cron 跑 pull_signals.py 就生效.
+# ---------------------------------------------------------------
+
+# 各市场的基准指数 (用于 MKT_STREAK / MKT_DEVIATION 等大盘级信号)
+# 文件位置: ~/.market_data/macro/<file>.parquet, 列: date / close
+benchmarks:
+  CN: index_000300.SH    # 沪深 300
+  US: index_SPX          # 标普 500
+  HK: index_HSI          # 恒生
+
+# universe parquet basename (~/.market_data/universe/<name>.parquet)
+universe_files:
+  CN: cn_a
+  US: us
+  HK: cn_hk
+
+# ts_code 后缀过滤 (universe 里可能掺杂别市场票)
+suffixes:
+  CN: [.SH, .SZ, .BJ]
+  US: [.US]
+  HK: [.HK]
+
+# CN amount 单位是千元, US/HK 直存 USD/HKD. 算"全市场成交额"时统一到本币元.
+amount_scale:
+  CN: 1000.0
+  US: 1.0
+  HK: 1.0
+
+# ──── 大盘级 ────
+mkt_streak:
+  # 指数连涨/连跌天数阈值
+  yellow_days: 5    # ≥5 日 → watch
+  red_days: 7       # ≥7 日 → risk
+
+mkt_turnover_hot:
+  # 全市场日成交额绝对值阈值 (本币元), 各市场独立
+  # 注意: YAML 1.1 解析 `3.0e12` 为字符串, 必须写 `3.0e+12` 才是 float
+  abs_threshold:
+    CN: 3.0e+12     # 3 万亿元
+    US: 5.0e+11     # 占位, US 数据回头校
+    HK: 3.0e+11     # 占位
+  # 相对阈值: 连续 N 日 > 60 日均额 × ratio
+  rel_ratio: 1.3
+  consecutive_days: 5
+
+mkt_turnover_cold:
+  rel_ratio: 0.7
+  consecutive_days: 5
+
+mkt_deviation:
+  # 收盘价距 MA60 偏离 > pct
+  ma_window: 60
+  pct_threshold: 0.08    # ±8%
+
+mkt_breadth_ext:
+  # 当日上涨家数占比阈值
+  hot_pct: 0.85
+  cold_pct: 0.15
+
+# ──── 板块级 ────
+sec_burst:
+  # 板块当日 amount / 板块 20 日均 amount > ratio
+  ratio: 1.5
+  ma_window: 20
+
+# ──── 个股级 ────
+stk_vol_persist:
+  # 连续 N 个交易日 amount > 20 日均额 × ratio
+  ratio: 2.0
+  ma_window: 20
+  consecutive_days: 3
+
+stk_breakout:
+  # 收盘创 N 日新高 且 当日 amount > 20 日均额 × ratio
+  high_window: 60
+  vol_ratio: 2.0
+  vol_ma_window: 20
+
+stk_breakdown:
+  # 收盘跌破 MA250 且 当日 amount > 20 日均额 × ratio
+  ma_window: 250
+  vol_ratio: 1.5
+  vol_ma_window: 20
+
+stk_strength:
+  # 连涨 N 个交易日 (pct_chg > 0)
+  streak_days: 5
+
+# ──── 引擎全局参数 ────
+engine:
+  # 信号落盘根目录, 物理路径 = _data_root() / <subdir>
+  out_subdir: signals
+  # 个股 universe 扫描时每只票回读多少自然日 (够算 STK_BREAKDOWN 的 MA250)
+  stock_lookback_days: 380
+  # 大盘/板块回读窗口
+  market_lookback_days: 180
+
+# ──── 推送 (飞书自定义群机器人) ────
+# 配 .env: FEISHU_WEBHOOK_URL=https://open.feishu.cn/open-apis/bot/v2/hook/...
+# (没配 webhook 时 notify_digest.py 报错退出, 不静默 skip)
+notify:
+  feishu:
+    enabled: true
+    markets: [CN, US]      # HK 数据稀疏暂不推, 真有 isNew=true 再开
+    only_new: true         # 只推 isNew=true (边沿触发, 避免警报疲劳)
+    min_severity: 60       # 同 level 内低于此分数不推 (PRD §6.5 经验值)
+    max_per_market: 20     # 每市场每次最多 N 条, 防刷屏
+    # 给 stock signal 拼跳转链接用; 留空 = 不带链接 (文本 only).
+    # 例: 'http://localhost:5173/?ticker={ts_code}' 或线上 WealthPilot 地址
+    deeplink_template: ''

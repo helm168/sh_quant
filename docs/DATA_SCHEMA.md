@@ -38,6 +38,11 @@
 ├── sw_l2/                       # 申万二级行业 124 个
 │   ├── _industries.parquet
 │   └── 801011.SI.parquet
+├── signals/                     # 每日盯盘信号 (Signal Engine 产物, JSON)
+│   ├── cn_latest.json           # App 默认读 latest, 跟 agent_reports/ 同款"sh_quant 产, App 读"通路
+│   ├── cn_2026-05-21.json       # 历史按日存, 边沿触发对账要回看昨日
+│   ├── us_latest.json
+│   └── hk_latest.json
 ├── universe/                    # ticker 全集元数据（新增）
 │   ├── cn_a.parquet             # 当前可交易 A 股清单
 │   ├── cn_hk.parquet            # 港股清单
