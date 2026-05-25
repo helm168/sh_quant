@@ -62,6 +62,7 @@ themes:
       - {code: 688213.SH, name: 思特威-W, subtrack: chip}
       - {code: 300672.SZ, name: 国科微, subtrack: chip}
       - {code: 688515.SH, name: 裕太微-U, subtrack: chip}
+      - {code: 002049.SZ, name: 紫光国微, subtrack: chip}
 
       # memory
       - {code: 688008.SH, name: 澜起科技, subtrack: memory}
@@ -75,6 +76,7 @@ themes:
       - {code: 688123.SH, name: 聚辰股份, subtrack: memory}
       - {code: 688766.SH, name: 普冉股份, subtrack: memory}
       - {code: 001309.SZ, name: 德明利, subtrack: memory}
+      - {code: 000021.SZ, name: 深科技, subtrack: memory}
 
       # packaging
       - {code: 002156.SZ, name: 通富微电, subtrack: packaging}
@@ -145,6 +147,7 @@ themes:
       - {code: 688629.SH, name: 华丰科技, subtrack: connector}
       - {code: 300351.SZ, name: 永贵电器, subtrack: connector}
       - {code: 002130.SZ, name: 沃尔核材, subtrack: connector}
+      - {code: 002138.SZ, name: 顺络电子, subtrack: connector}    # 高频电感, AI 服务器板用
 
   ai_data_center_power:
     name: AI 数据中心 / 电源散热
@@ -266,6 +269,7 @@ themes:
       - {code: 600206.SH, name: 有研新材, subtrack: materials}
       - {code: 688234.SH, name: 天岳先进, subtrack: materials}
       - {code: 605358.SH, name: 立昂微, subtrack: materials}
+      - {code: 002859.SZ, name: 洁美科技, subtrack: materials}    # 半导体载带
 
       # eda_design
       - {code: 688521.SH, name: 芯原股份, subtrack: eda_design}
