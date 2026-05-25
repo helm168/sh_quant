@@ -92,18 +92,48 @@ def make_signal_id(market: str, signal_type: str, first_date: str, subject_id: s
     return f'{market}-{first_date}-{signal_type}-{_sanitize_id_component(subject_id)}'
 
 
-def load_previous(market: str, out_dir: Path) -> dict[tuple[str, str], dict]:
-    """读 <market>_latest.json, 返回 {(type,subject_id): prev_signal_dict}.
+def load_previous(
+    market: str,
+    out_dir: Path,
+    current_as_of: str | None = None,
+) -> dict[tuple[str, str], dict]:
+    """加载 "上一个交易日" 的产物作为边沿触发对账基准.
 
-    缺文件 (首次跑) 返回空 dict, 所有信号都会 isNew=True.
+    Returns {(type,subject_id): prev_signal_dict}. 缺文件返回 {} (冷启动).
+
+    current_as_of='YYYY-MM-DD' 时, 优先用 dated 文件中 date<current_as_of 最近
+    一份 —— 这样**同一天重跑 pull_signals 是幂等的** (不会把首次跑标到的
+    isNew=true 信号 "消耗" 成 isNew=false).
+
+    current_as_of=None 时 fallback 到读 latest.json (legacy, 仅测试用).
     """
-    fp = out_dir / f'{market.lower()}_latest.json'
-    if not fp.exists():
-        return {}
+    m = market.lower()
+    fp: Path | None = None
+
+    if current_as_of is not None:
+        candidates: list[tuple[str, Path]] = []
+        for cand in out_dir.glob(f'{m}_*.json'):
+            stem = cand.stem
+            date_part = stem.split('_', 1)[1] if '_' in stem else ''
+            # 形如 'YYYY-MM-DD' 才算 dated 文件; 排除 'latest'
+            if (len(date_part) == 10 and date_part[4] == '-' and date_part[7] == '-'
+                    and date_part < current_as_of):
+                candidates.append((date_part, cand))
+        if candidates:
+            candidates.sort()
+            fp = candidates[-1][1]
+
+    # legacy fallback: latest.json (同日重跑会消耗 isNew=true, 仅测试用)
+    if fp is None:
+        latest = out_dir / f'{m}_latest.json'
+        if latest.exists():
+            fp = latest
+        else:
+            return {}
+
     try:
         prev = json.loads(fp.read_text())
     except (json.JSONDecodeError, OSError) as e:
-        # 上次写坏了不算事故, 当作冷启动; 但要打到 stdout 让 cron 日志可见
         print(f'  [WARN] previous {fp.name} unreadable ({e}); treating all signals as new')
         return {}
     out = {}

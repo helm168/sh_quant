@@ -98,6 +98,30 @@ def test_id_sanitization():
            'CN-2026-05-22-SEC_BURST-_A'
 
 
+def test_same_day_rerun_is_idempotent(tmp_path):
+    """同一天重跑 pull_signals 不应"消耗" isNew=true (regression: 早期版本
+    load_previous 读 latest.json, 二次跑会把第一次的 new=true 覆盖成 false)."""
+    # Day 1: 冷启动
+    d1 = reconcile([_mk('STK_BREAKOUT', 'A.SH')], 'CN', '2026-05-22', {})
+    write_output('CN', '2026-05-22', universe_size=10, signals=d1, out_dir=tmp_path)
+    # Day 2 首跑: A 持续, B 新触发
+    prev = load_previous('CN', tmp_path, current_as_of='2026-05-23')
+    d2 = reconcile([_mk('STK_BREAKOUT', 'A.SH'), _mk('STK_VOL_PERSIST', 'B.SH')],
+                   'CN', '2026-05-23', prev)
+    write_output('CN', '2026-05-23', universe_size=10, signals=d2, out_dir=tmp_path)
+    by_id = {s.subject.id: s for s in d2}
+    assert by_id['A.SH'].isNew is False  # 持续
+    assert by_id['B.SH'].isNew is True   # 首次
+
+    # Day 2 重跑 (同 as_of): 应当幂等, B 还是 isNew=True
+    prev2 = load_previous('CN', tmp_path, current_as_of='2026-05-23')
+    d2_again = reconcile([_mk('STK_BREAKOUT', 'A.SH'), _mk('STK_VOL_PERSIST', 'B.SH')],
+                         'CN', '2026-05-23', prev2)
+    by_id_again = {s.subject.id: s for s in d2_again}
+    assert by_id_again['A.SH'].isNew is False
+    assert by_id_again['B.SH'].isNew is True, '同日重跑不应消耗 isNew=true'
+
+
 def test_latest_file_format(tmp_path):
     sigs = reconcile([_mk('STK_VOL_PERSIST', '600519.SH')], 'CN', '2026-05-22', {})
     write_output('CN', '2026-05-22', universe_size=10, signals=sigs, out_dir=tmp_path)

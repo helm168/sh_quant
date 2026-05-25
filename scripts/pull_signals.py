@@ -193,7 +193,9 @@ def run_market(market: str, cfg: dict, dry_run: bool = False) -> int:
             print(f'  [RULE FAIL] {rule.__name__}: {ex}')
 
     out_dir = _data_root() / cfg['engine']['out_subdir']
-    previous = load_previous(market, out_dir)
+    # 关键: 传 current_as_of 让 reconcile 找前一交易日 dated 文件, 而非 latest.json
+    # —— 同日重跑才会幂等 (否则会"消耗"今日 isNew=true 信号)
+    previous = load_previous(market, out_dir, current_as_of=as_of_str)
     reconciled = reconcile(raw_signals, market, as_of_str, previous)
 
     new_count = sum(1 for s in reconciled if s.isNew)
