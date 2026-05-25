@@ -103,13 +103,31 @@ def _line_for_signal(s: dict, deeplink_template: str) -> str:
     return f'`{sev:>3}` {ident} — {title}'
 
 
+def _resolve_filter_path() -> Path | None:
+    """优先读 ~/.market_data/notify_filter.yaml (用户数据, 不入仓),
+    fallback 到仓里的 config/notify_filter.yaml (模板/CI).
+
+    个人持仓属于敏感数据 (跟 .env 同级), 永远不应该 commit. 仓里只放
+    portfolio=[] 的模板; 真实持仓由用户 (或未来 WealthPilot UI) 写到
+    ~/.market_data/notify_filter.yaml.
+    """
+    user_fp = _data_root() / 'notify_filter.yaml'
+    if user_fp.exists():
+        return user_fp
+    repo_fp = PROJECT_ROOT / 'config' / 'notify_filter.yaml'
+    if repo_fp.exists():
+        return repo_fp
+    return None
+
+
 def _load_user_filter() -> dict:
-    """读 config/notify_filter.yaml + 展开 opportunity_themes → universe set."""
-    fp = PROJECT_ROOT / 'config' / 'notify_filter.yaml'
-    if not fp.exists():
+    """读过滤器 yaml + 展开 opportunity_themes → universe set."""
+    fp = _resolve_filter_path()
+    if fp is None:
         # 没配过滤器时 = 全推 (跟 v1.0 行为一致, 不破坏老用户)
         return {'portfolio': set(), 'opp_universe': None,
-                'push_market_risk': True, 'risk_portfolio_only': False}
+                'push_market_risk': True, 'risk_portfolio_only': False,
+                '_source': '(none)'}
     raw = yaml.safe_load(fp.read_text()) or {}
     portfolio = set(raw.get('portfolio') or [])
     opp_codes: set[str] = set()
@@ -124,6 +142,7 @@ def _load_user_filter() -> dict:
         'opp_universe': opp_codes if opp_codes else None,
         'push_market_risk': bool(raw.get('push_market_risk', True)),
         'risk_portfolio_only': bool(raw.get('risk_portfolio_only', False)),
+        '_source': str(fp),
     }
 
 
@@ -296,7 +315,8 @@ def main() -> int:
     )
 
     user_filter = _load_user_filter()
-    print(f'  [filter] portfolio={len(user_filter["portfolio"])} '
+    print(f'  [filter] src={user_filter["_source"]} '
+          f'portfolio={len(user_filter["portfolio"])} '
           f'opp_universe={len(user_filter["opp_universe"]) if user_filter["opp_universe"] else "all"} '
           f'push_market_risk={user_filter["push_market_risk"]} '
           f'risk_portfolio_only={user_filter["risk_portfolio_only"]}')

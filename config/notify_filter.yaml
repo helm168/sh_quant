@@ -1,7 +1,11 @@
 # 飞书推送过滤器 — "信号要不要推到面前" 的用户视角配置
 # ─────────────────────────────────────────────────────────
-# 这份配置短期手写, 中期 WealthPilot 「消息中心」UI 写回. 飞书推送和
-# (未来的) UI 展示**共用同一份过滤器**, 不重复逻辑.
+# ⚠️ 这是**模板**, 不是你的真实配置. 仓里的 portfolio 永远是 []. 真实持仓
+# 是敏感数据 (跟 .env 同级), 不应 commit. 把这份文件复制到
+# `~/.market_data/notify_filter.yaml` 再编辑, notify_digest.py 会优先读那边.
+# WealthPilot 持仓按钮做好后, 由 UI 写回 ~/.market_data/notify_filter.yaml.
+#
+# 飞书推送和 (未来的) UI 展示**共用同一份过滤器**, 不重复逻辑.
 #
 # 过滤规则 (notify_digest.py 实现):
 #   market/sector scope:
