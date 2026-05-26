@@ -947,24 +947,96 @@ def fetch_one(ts_code: str, start: str, end: str) -> tuple[pd.DataFrame | None, 
 # ---------- 单只 ticker 增量更新 ----------
 
 
-def _last_trading_day_approx(today: pd.Timestamp) -> pd.Timestamp:
-    """粗略算"最近一个**已经收盘**的交易日"，考虑周末 + 当日是否过了收盘时间。
+# pandas_market_calendars 各市场名映射. 没装 mcal 时全部走老 fallback.
+_MCAL_NAMES = {'cn_a': 'SSE', 'us': 'NYSE', 'cn_hk': 'HKEX'}
+# 各市场"今天收盘已 ready"的中国时区小时阈值. SSE 15:00 + 1h, HKEX 16:00 + 1h,
+# NYSE 16:00 EST 收盘 → 次日凌晨 4-5 点 CN tz; 给到 5 点最稳, 避免 8am cron 拿到
+# 没回填完的当天数据.
+_AFTER_CLOSE_HOUR_CN_TZ = {'cn_a': 16, 'cn_hk': 17, 'us': 5}
+_CAL_CACHE: dict[str, object] = {}
 
-    判断逻辑:
-      - 周末: 返回最近的工作日 (周六→周五, 周日→周五)
-      - 工作日且当前时间已过 17:00 中国时间: 今天本身就算最近交易日
-        (A 股 15:00 收盘 / 港股 16:00 收盘, 加 1h buffer 给 vendor 入库)
-      - 工作日但当前时间 < 17:00: 今天数据还没 ready, 返回昨天/上周五
-      - 周一早上: 上周五
 
-    边界 (节假日跑批) 会让"上次更新到上一工作日"的股票被误判为需要 fetch,
-    Tushare/efinance 会返空, 脚本 fallback 到 'empty' status, 不阻塞流程.
+def _get_market_calendar(market: str):
+    """Lazy-load pandas_market_calendars 日历. 失败 (没装 / 未知 market) 返回 None."""
+    if market in _CAL_CACHE:
+        return _CAL_CACHE[market]
+    cal_name = _MCAL_NAMES.get(market)
+    if cal_name is None:
+        _CAL_CACHE[market] = None
+        return None
+    try:
+        import pandas_market_calendars as mcal
 
-    NOTE: 时区用 pandas 本地, 假设跑批机器在中国时区. 美股口径凌晨 4-5 点收
-    (CN tz), 早上 8 点 cron 时美股昨天数据已经 ready, last_td 还是返回昨天,
-    符合预期 (美股 5/13 收盘 → 5/14 凌晨入库 → 5/14 早 8 点 cron 拉到 5/13).
+        _CAL_CACHE[market] = mcal.get_calendar(cal_name)
+    except Exception as e:
+        _warn_once(
+            f'pandas_market_calendars 加载失败 ({e}); '
+            f'{market} 走旧 weekday-only fallback (节假日可能误拉空)',
+            key=f'mcal_load_{market}',
+        )
+        _CAL_CACHE[market] = None
+    return _CAL_CACHE[market]
+
+
+def _last_trading_day_approx(
+    today: pd.Timestamp, market: str | None = None
+) -> pd.Timestamp:
+    """算"最近一个**已经收盘**的交易日". 默认 (market=None) 走老 weekday-only
+    逻辑保持兼容; 传 market 时走 pandas_market_calendars 精确判节假日.
+
+    market 模式 (推荐):
+      - 'cn_a' / 'us' / 'cn_hk': 用对应 SSE/NYSE/HKEX 日历, 自动跳过 Memorial
+        Day / Labor Day / 春节 等节假日; 同时按市场收盘时间 (CN tz) 判 today
+        是否已 ready.
+      - 任何失败 (没装 mcal / 日历查询出错) 自动 fallback 到老逻辑.
+
+    老逻辑 (market=None, 历史兼容):
+      - 周末→上一工作日; 工作日 17:00 前→昨天, 17:00 后→今天
+      - 不认识 NYSE 节假日, Memorial Day / Thanksgiving 跑批会拉空
     """
     today = today.normalize()
+
+    # 新路径: 按市场日历精确算
+    if market is not None:
+        cal = _get_market_calendar(market)
+        if cal is not None:
+            try:
+                # 拿 today 周围 14 天的交易日列表 (足够 cover 任何节假日断档)
+                schedule = cal.valid_days(
+                    start_date=today - pd.Timedelta(days=14),
+                    end_date=today,
+                )
+                # mcal 返回 tz-aware (UTC), 我们的 today 是 tz-naive. 统一去 tz
+                # 再 normalize, 避免 "Cannot compare tz-naive and tz-aware" 报错.
+                valid_days = [pd.Timestamp(d).tz_localize(None).normalize() for d in schedule]
+                if valid_days:
+                    if market == 'us':
+                        # 美股关键: 在 CN 时区下, "今天 CN-date" 永远拿不到当天
+                        # 美股收盘数据 — 美股 04:00 CN tz 才收盘, 而那时 CN
+                        # 已经是次日凌晨 4 点. 所以 US ready 的 last_td 永远是
+                        # max(NYSE valid_days < today_CN), 不存在"今天"分支.
+                        # (cron 8am 跑批时, 美股昨夜 04:00 已收, 数据 ready;
+                        # 若 5-25 是 Memorial Day, NYSE 没这天, 自动跳到 5-22.)
+                        prev = [d for d in valid_days if d < today]
+                        if prev:
+                            return prev[-1]
+                    else:
+                        # CN / HK: 收盘在 CN-date 当天, 看是否过了 after_close 阈值
+                        threshold = _AFTER_CLOSE_HOUR_CN_TZ.get(market, 17)
+                        after_close = pd.Timestamp.now().hour >= threshold
+                        if today in valid_days and after_close:
+                            return today
+                        prev = [d for d in valid_days if d < today]
+                        if prev:
+                            return prev[-1]
+            except Exception as e:
+                _warn_once(
+                    f'{market} 日历查询失败 ({e}), fallback 到 weekday-only',
+                    key=f'mcal_query_{market}',
+                )
+        # cal=None 或查询失败 → fall-through 到老逻辑
+
+    # 老逻辑 (兼容 + fallback)
     wd = today.weekday()  # Monday=0
     if wd == 5:  # Saturday
         return today - pd.Timedelta(days=1)
@@ -1021,7 +1093,12 @@ def update_one(ts_code: str, lookback_days: int, cache_dir: Path, force: bool) -
     """
     fp = cache_dir / f'{ts_code}.parquet'
     today = pd.Timestamp.today().normalize()
-    last_td = _last_trading_day_approx(today)
+    # 按 ts_code 后缀挑对应市场日历 (NYSE 跳 Memorial Day, SSE 跳春节, 等等).
+    # 'unknown' 市场 (后缀识别不出) 传 None → 走老 weekday-only 兜底.
+    market = parse_market(ts_code)
+    last_td = _last_trading_day_approx(
+        today, market=market if market in _MCAL_NAMES else None
+    )
     end = last_td.strftime('%Y-%m-%d')
 
     # 快速 fresh 检查：只读 metadata，不读数据
@@ -1142,14 +1219,19 @@ _COMPARE_COLS = ('open', 'high', 'low', 'close', 'vol', 'amount', 'adj_factor')
 
 
 def _data_changed(merged: pd.DataFrame, old: pd.DataFrame) -> bool:
-    """merged 相对 old 有变化（行数不同 / 关键列值不同）就返回 True。"""
-    if len(merged) != len(old):
-        return True
+    """merged 相对 old 有变化（行数不同 / 关键列值不同）就返回 True。
+
+    重要: merged 已经被 caller 跑过 drop_duplicates, old 是直接读 parquet 没 dedup.
+    必须把 old 先 dedup 再比 len, 否则历史遗留的 dup 行会让 len(merged)==len(old)
+    成立但 numpy 比较时形状不齐 → 'operands could not be broadcast together'.
+    """
     old_sorted = (
         old.drop_duplicates(subset=['ts_code', 'trade_date'], keep='last')
         .sort_values('trade_date')
         .reset_index(drop=True)
     )
+    if len(merged) != len(old_sorted):
+        return True
     cols = [c for c in _COMPARE_COLS if c in merged.columns and c in old_sorted.columns]
     if not cols:
         # 没有可比较的数值列，保守起见认为变了
@@ -1350,7 +1432,7 @@ def main() -> int:
     if not skip_batch and cn_count >= BATCH_MIN_TICKERS:
         # 预扫: 计算 stale 数 (peek_last < last_td 的). 全 fresh 时不浪费 batch
         today_norm = pd.Timestamp.today().normalize()
-        last_td_pre = _last_trading_day_approx(today_norm)
+        last_td_pre = _last_trading_day_approx(today_norm, market='cn_a')
         n_stale = 0
         for t in cn_tickers:
             fp = cache_dir / f'{t}.parquet'
@@ -1400,7 +1482,7 @@ def main() -> int:
     US_BATCH_MIN_TICKERS = 20
     if us_count >= US_BATCH_MIN_TICKERS and not args.force and not args.verify:
         today_norm = pd.Timestamp.today().normalize()
-        last_td_pre = _last_trading_day_approx(today_norm)
+        last_td_pre = _last_trading_day_approx(today_norm, market='us')
         n_stale_us = 0
         for t in us_tickers:
             fp = cache_dir / f'{t}.parquet'
@@ -1604,13 +1686,25 @@ def main() -> int:
         except Exception as e:
             print(f'  [daily_basic] 调用失败: {e}')
 
-    # 退出码: 0 全成功, 1 部分成功, 2 全失败
+    # 退出码:
+    #   0 = 正常 (没有失败 / 失败比例 < 20%)
+    #   1 = 部分失败 (20% ≤ 失败比例 < 80%, 比如 FMP 半挂)
+    #   2 = 数据源大面积挂 (失败比例 ≥ 80%)
+    #
+    # 关键设计: fresh/unchanged/delisted 都算成功, 不是失败. 否则:
+    #   - 早上 CN 已 fresh + 美股节假日全 empty → 误报 exit 2
+    #   - 一天跑两次, 第二次全 fresh → 误报 exit 2
     # daily_basic 错误不影响主退出码 (OHLCV 是主, 估值是辅), 但日志里能看到
-    if ok == len(results):
-        return 0
-    if ok == 0:
+    n_total = len(results)
+    n_failed = sum(1 for r in results if r['status'] in ('error', 'empty'))
+    if n_total == 0:
+        return 2  # 没 ticker 可处理 (collect_tickers 阶段已经 raise 过, 防御性返回)
+    fail_rate = n_failed / n_total
+    if fail_rate >= 0.8:
         return 2
-    return 1
+    if fail_rate >= 0.2:
+        return 1
+    return 0
 
 
 if __name__ == '__main__':

@@ -9,6 +9,7 @@ tushare>=1.4
 futu-api>=9.3         # 港股 Lv1 (本地 OpenD daemon, scripts/pull_hk_futu.py 用)
 akshare>=1.18         # 东财公开接口 (scripts/pull_macro.py 取 南向资金)
 yfinance>=0.2         # Yahoo summaryProfile (HK universe sector/industry overlay)
+pandas_market_calendars>=4.4  # NYSE/SSE/HKEX 交易日历 (update_daily 区分节假日)
 
 # 可视化
 matplotlib>=3.8
