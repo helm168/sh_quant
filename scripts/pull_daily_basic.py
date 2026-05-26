@@ -637,13 +637,33 @@ def load_tickers(args) -> list[str]:
 
     universe_dir = PROJECT_ROOT / 'data_cache' / 'universe'
     ts_set: set[str] = set()
+
+    # 退市票要先单独读出来 -- delisted.parquet 是 survivorship-bias 回填档案
+    # (给回测用), 不是 live universe. 这些票:
+    #   - parquet 停在退市日, 当前 daily_basic 永远返空
+    #   - 把 global_min 拖到 2+ 年前, 触发 by-trade-date 路径冗余扫描
+    # 所以 daily 增量更新必须把它们排除. 想拉退市历史走 pull_delisted.py 一次性回填.
+    delisted_set: set[str] = set()
+    delisted_fp = universe_dir / 'delisted.parquet'
+    if delisted_fp.exists():
+        try:
+            df = pd.read_parquet(delisted_fp, columns=['ts_code'])
+            delisted_set = set(df['ts_code'].dropna().astype(str).str.upper())
+        except Exception:
+            pass
+
     if universe_dir.exists():
         for uni_fp in sorted(universe_dir.glob('*.parquet')):
+            if uni_fp.name == 'delisted.parquet':
+                continue  # 已单独处理, 见上面注释
             try:
                 df = pd.read_parquet(uni_fp, columns=['ts_code'])
                 ts_set.update(df['ts_code'].dropna().astype(str).str.upper())
             except Exception:
                 pass
+
+    # 显式扣掉 delisted (即便 cn_a.parquet 没含, 防止其他 universe 文件未来不小心带入)
+    ts_set -= delisted_set
     return sorted(t for t in ts_set if is_cn_a(t))
 
 

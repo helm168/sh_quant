@@ -1183,9 +1183,28 @@ def collect_tickers(args, cache_dir: Path) -> list[str]:
         ts_set: set[str] = set()
 
         universe_dir = PROJECT_ROOT / 'data_cache' / 'universe'
+
+        # 退市票单独读, 然后从 ts_set 扣掉.
+        # delisted.parquet 是 survivorship-bias 回填档案 (给回测用), 不是 live universe.
+        # 这些票早就不在交易状态, daily 增量拉它们:
+        #   - Tushare daily 返空, FMP/Polygon/yfinance 兜底全报 "possibly delisted"
+        #     (历史 stderr 噪声主源)
+        #   - 浪费 fetch quota 且每次失败
+        # 想要这些票的历史数据走 pull_delisted.py 一次性回填, 别走日更.
+        delisted_set: set[str] = set()
+        delisted_fp = universe_dir / 'delisted.parquet'
+        if delisted_fp.exists():
+            try:
+                df = pd.read_parquet(delisted_fp, columns=['ts_code'])
+                delisted_set = set(df['ts_code'].dropna().astype(str).tolist())
+            except Exception:
+                pass
+
         if universe_dir.exists():
             print('从 universe 文件加载 ticker:')
             for uni_fp in sorted(universe_dir.glob('*.parquet')):
+                if uni_fp.name == 'delisted.parquet':
+                    continue  # 已单独处理, 见上面注释
                 try:
                     df = pd.read_parquet(uni_fp)
                     if 'ts_code' in df.columns:
@@ -1195,13 +1214,24 @@ def collect_tickers(args, cache_dir: Path) -> list[str]:
                 except Exception as e:
                     print(f'  ! 读 {uni_fp.name} 失败: {e}')
 
-        # 再合并已缓存但 universe 没收录的（如 --tickers 临时拉的美股）
+        # 再合并已缓存但 universe 没收录的（如 --tickers 临时拉的美股）.
+        # 注意: cache_dir 里可能有早年缓存过的退市票, 这里也用 delisted_set 扣掉,
+        # 避免把已退市票从 cache 重新拉回来.
         if cache_dir.exists():
             cached = {fp.stem for fp in cache_dir.glob('*.parquet') if not fp.stem.startswith('_')}
+            cached -= delisted_set
             ad_hoc = cached - ts_set
             if ad_hoc:
                 print(f'  + 已缓存但不在 universe: {len(ad_hoc)} 只 (可能是 --tickers 临时拉过的)')
             ts_set.update(cached)
+
+        # 双保险: 即便 cn_a/us/cn_hk 未来某天没显式排除 delisted, 这里也兜底扣掉
+        if delisted_set:
+            before = len(ts_set)
+            ts_set -= delisted_set
+            removed = before - len(ts_set)
+            if removed:
+                print(f'  - 排除 delisted: {removed} 只 (走 pull_delisted.py 单独回填)')
 
         if not ts_set:
             raise SystemExit(
