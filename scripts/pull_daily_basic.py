@@ -272,6 +272,221 @@ def update_one(ts_code: str, default_start: str, end: str, force: bool) -> dict:
 # ─── 主入口 (CLI + update_daily.py 复用) ────────────────────────────────
 BATCH_MIN_TICKERS = 20
 
+# 全市场场景阈值: ticker 数 ≥ 这个值时, update_all 走 by-trade-date 路径
+# (N call/天 全市场分发, 跟票数无关), 而不是 per-ticker (N call/票, 限频爆).
+# 100/500 都行, 这是经验阈值: 单独修几个 ticker 用 per-ticker (--tickers a,b,c),
+# 一旦上百就明显是 cron 全市场场景, 必须走批量.
+ROUTE_BY_DATE_THRESHOLD = 100
+
+
+def _trade_calendar(start_yyyymmdd: str, end_yyyymmdd: str) -> list[str]:
+    """拿 [start, end] 区间所有 A 股交易日 (YYYYMMDD list, 升序). 1 次网络调用.
+
+    SSE/SZSE 共享日历, 取 SSE 即可. 失败 / 空返 []  让上层 fall back.
+    """
+    pro = _get_tushare_pro()
+    try:
+        cal = pro.trade_cal(
+            exchange='SSE', start_date=start_yyyymmdd, end_date=end_yyyymmdd
+        )
+    except Exception as e:
+        print(f'  [by-date] trade_cal 失败: {e}', flush=True)
+        return []
+    if cal is None or cal.empty:
+        return []
+    open_days = cal[cal['is_open'] == 1]['cal_date'].astype(str).tolist()
+    return sorted(open_days)
+
+
+def _update_all_by_trade_date(
+    cn_tickers: list[str],
+    default_start: str,
+    end_str: str,
+    *,
+    verbose: bool,
+) -> dict:
+    """全市场场景 (N ≥ ROUTE_BY_DATE_THRESHOLD): 按 trade_date 拉, 1 call/天.
+
+    跟 per-ticker 路径对比:
+      - 5000 票缺 1 天:   1 call   vs 5000 call
+      - 5000 票缺 5 天:   5 call   vs 25000 call (大概率限频爆)
+      - 5000 票冷启动 3 年 (~750 trade_days): 750 call vs 5000 call
+    调用数恒等于"区间内交易日数", 跟票数无关 — 任何 gap 都不会因为票数大而限频爆.
+
+    步骤:
+      1. 算每个 ticker 的 earliest needed date (parquet 不存在 → default_start)
+      2. trade_cal 拿区间内所有交易日 (1 call)
+      3. 每个交易日 1 次 pro.daily_basic(trade_date=d) → groupby ts_code 分发到累积桶
+      4. 每个 ticker 一次性 read-existing + merge + write parquet
+    """
+    t_start = time.time()
+    today_dt = pd.to_datetime(end_str, format='%Y%m%d')
+    default_start_dt = pd.to_datetime(default_start, format='%Y%m%d')
+    pro = _get_tushare_pro()
+
+    CACHE_DIR_DB.mkdir(parents=True, exist_ok=True)
+
+    # 1. 每个 ticker 算 earliest needed date
+    needs: dict[str, pd.Timestamp] = {}
+    fresh: list[str] = []
+    for t in cn_tickers:
+        md = _existing_max_date(t)
+        if md is None:
+            needs[t] = default_start_dt
+        else:
+            start_dt = md + timedelta(days=1)
+            if start_dt > today_dt:
+                fresh.append(t)
+            else:
+                needs[t] = start_dt
+
+    if not needs:
+        elapsed = time.time() - t_start
+        print(f'  [by-date] 全部 {len(fresh)} 票已最新, 跳过')
+        return {
+            'ok': 0,
+            'fresh': len(fresh),
+            'empty': 0,
+            'error': 0,
+            'rows_added': 0,
+            'elapsed_s': elapsed,
+        }
+
+    global_min = min(needs.values())
+    print(
+        f'  [by-date] {len(needs)} 票需更新 (fresh {len(fresh)}), '
+        f'区间 {global_min.strftime("%Y-%m-%d")} → {today_dt.strftime("%Y-%m-%d")}',
+        flush=True,
+    )
+
+    # 2. 拿交易日历
+    trade_days = _trade_calendar(global_min.strftime('%Y%m%d'), end_str)
+    if not trade_days:
+        print('  [by-date] trade_cal 返空, fall back per-ticker', flush=True)
+        return _update_all_per_ticker(
+            cn_tickers,
+            default_start,
+            end_str,
+            workers=3,
+            force=False,
+            verbose=verbose,
+        )
+    print(f'  [by-date] 区间内 {len(trade_days)} 个交易日', flush=True)
+
+    # 3. 逐日 batch 拉 + groupby 分发
+    accumulated: dict[str, list[pd.DataFrame]] = {}
+    fetch_errors = 0
+    t_fetch = time.time()
+    width = len(str(len(trade_days)))
+    for i, d in enumerate(trade_days, 1):
+        try:
+            df = pro.daily_basic(trade_date=d)
+        except Exception as e:
+            if '频率' in str(e) or '超限' in str(e):
+                time.sleep(1.5)
+                try:
+                    df = pro.daily_basic(trade_date=d)
+                except Exception as e2:
+                    print(
+                        f'  [by-date] [{i:>{width}}/{len(trade_days)}] {d} 失败(重试): {e2}',
+                        flush=True,
+                    )
+                    fetch_errors += 1
+                    continue
+            else:
+                print(
+                    f'  [by-date] [{i:>{width}}/{len(trade_days)}] {d} 失败: {e}',
+                    flush=True,
+                )
+                fetch_errors += 1
+                continue
+
+        if df is None or df.empty:
+            if verbose:
+                print(
+                    f'  [by-date] [{i:>{width}}/{len(trade_days)}] {d} 空',
+                    flush=True,
+                )
+            continue
+
+        df = df.copy()
+        df['trade_date'] = pd.to_datetime(df['trade_date'], format='%Y%m%d')
+        df = df[[c for c in COLS if c in df.columns]]
+
+        d_ts = pd.to_datetime(d, format='%Y%m%d')
+        for ts_code, sub in df.groupby('ts_code'):
+            t = str(ts_code)
+            ticker_start = needs.get(t)
+            if ticker_start is None:
+                continue  # 不在我们关心的 ticker 集 (理论上不会, 因为 daily_basic 是全 A)
+            if ticker_start > d_ts:
+                continue  # 这只票已经有更新数据, 这天 skip
+            accumulated.setdefault(t, []).append(sub.reset_index(drop=True))
+
+        if verbose or i % 20 == 0:
+            print(
+                f'  [by-date] [{i:>{width}}/{len(trade_days)}] {d} 进度 {time.time()-t_fetch:.1f}s',
+                flush=True,
+            )
+
+    fetch_elapsed = time.time() - t_fetch
+    print(f'  [by-date] 拉取完成 {fetch_elapsed:.1f}s, 开始写盘', flush=True)
+
+    # 4. 每个 ticker 合并 + 写盘
+    t_write = time.time()
+    ok = 0
+    empty = 0
+    write_errors = 0
+    total_rows = 0
+    for t in needs:
+        chunks = accumulated.get(t)
+        if not chunks:
+            empty += 1
+            continue
+        try:
+            new_df = (
+                pd.concat(chunks, ignore_index=True)
+                .sort_values('trade_date')
+                .reset_index(drop=True)
+            )
+            fp = CACHE_DIR_DB / f'{t}.parquet'
+            if fp.exists():
+                old_df = pd.read_parquet(fp)
+                merged = (
+                    pd.concat([old_df, new_df], ignore_index=True)
+                    .drop_duplicates('trade_date', keep='last')
+                    .sort_values('trade_date')
+                    .reset_index(drop=True)
+                )
+            else:
+                merged = new_df
+            merged.to_parquet(fp, index=False)
+            ok += 1
+            total_rows += len(new_df)
+        except Exception as e:
+            write_errors += 1
+            if verbose:
+                print(f'  [by-date] 写 {t} 失败: {e}', flush=True)
+
+    write_elapsed = time.time() - t_write
+    total_elapsed = time.time() - t_start
+    err = fetch_errors + write_errors
+    summary = (
+        f'  完成 (by-date): {ok} 更新 / {len(fresh)} 已最新(skip) / '
+        f'{empty} 空 / {err} 错误, +{total_rows} 新行, '
+        f'用时 {total_elapsed:.1f}s (fetch {fetch_elapsed:.1f}s + write {write_elapsed:.1f}s)'
+    )
+    print(summary, flush=True)
+
+    return {
+        'ok': ok,
+        'fresh': len(fresh),
+        'empty': empty,
+        'error': err,
+        'rows_added': total_rows,
+        'elapsed_s': total_elapsed,
+    }
+
 
 def update_all(
     tickers: list[str],
@@ -283,6 +498,11 @@ def update_all(
     label: str = 'daily_basic',
 ) -> dict:
     """对一批 ticker 跑 daily_basic 增量更新. update_daily.py 末尾会调这个.
+
+    Dispatch:
+      - --force OR N < ROUTE_BY_DATE_THRESHOLD: per-ticker 路径 (适合修单只 / 强制
+        全量重拉某几只), call 数 = 票数
+      - 否则: by-trade-date 路径 (全市场场景), call 数 = 交易日数, 跟票数无关
 
     返回 stats dict: {ok, fresh, empty, error, rows_added, elapsed_s}
     """
@@ -296,12 +516,44 @@ def update_all(
 
     print(f'\n=== {label} 增量更新 ({len(cn_tickers)} 只 A 股) ===', flush=True)
     print(f'  时间范围: {default_start} → {end_str} (首次全量 {years} 年, 增量从 max_date+1d)')
-    print(f'  并发: {workers}, force: {force}')
 
-    # 决定要不要 batch: --force 走 per-ticker (要多年历史), 小批量直接 per-ticker
+    if not force and len(cn_tickers) >= ROUTE_BY_DATE_THRESHOLD:
+        print(f'  路由: by-trade-date (N={len(cn_tickers)} ≥ {ROUTE_BY_DATE_THRESHOLD})')
+        return _update_all_by_trade_date(
+            cn_tickers, default_start, end_str, verbose=verbose
+        )
+
+    print(
+        f'  路由: per-ticker '
+        f'(force={force}, N={len(cn_tickers)} < {ROUTE_BY_DATE_THRESHOLD}), 并发 {workers}'
+    )
+    return _update_all_per_ticker(
+        cn_tickers,
+        default_start,
+        end_str,
+        workers=workers,
+        force=force,
+        verbose=verbose,
+    )
+
+
+def _update_all_per_ticker(
+    cn_tickers: list[str],
+    default_start: str,
+    end_str: str,
+    *,
+    workers: int,
+    force: bool,
+    verbose: bool,
+) -> dict:
+    """Per-ticker 路径 (老逻辑). 调用 = 票数. 适合 --force / 小批量场景.
+
+    保留 _prefetch_daily_basic_batch 单日 fast-path: 缺 1 天的票走 cache, 不打网络.
+    """
+    # 决定要不要 batch fast-path (单日): --force 要多年历史, 小批量直接 per-ticker
     skip_batch = force or len(cn_tickers) < BATCH_MIN_TICKERS
     if not skip_batch:
-        _prefetch_daily_basic_batch(pd.Timestamp(today).normalize())
+        _prefetch_daily_basic_batch(pd.Timestamp(datetime.now()).normalize())
 
     t0 = time.time()
     results: list[dict] = []
