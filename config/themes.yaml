@@ -296,21 +296,28 @@ themes:
       - {code: 688372.SH, name: 伟测科技, subtrack: packaging}
 
   us_ai_compute:
-    name: 美股 AI 算力链
+    name: 美股 AI 产业链
     desc: |
-      ai_compute 的美股映射 (FMP universe, 仅美国上市)。subtrack 口径与 A 股
-      ai_compute 对齐, 便于跨市场看同一环节的景气扩散。注意 TSM / ASML / ARM
-      等以 ADR 形式在美交易的标的不在 FMP universe, 故缺失。
+      美股 AI 产业链全景 (FMP universe, 仅美国上市)。从上游芯片/设备 → 中游服务器/
+      网络/光模块 → 下游电源散热/云算力/AI 软件 + 数据中心 REIT 全链覆盖。"卖铲子"
+      逻辑下各环节景气有传导顺序: chip 领先, server/network/optical 中游, power/cloud
+      承接需求。注意 TSM / ASML / ARM / NBIS(Nebius) / CLS(Celestica) 等不在 FMP
+      universe (ADR 或未收录), 故缺失。成分非买入建议, 仅供轮动/景气研究切片。
     subtracks:
-      chip:       AI 芯片 / CPU / GPU / 模拟 / 互联
-      memory:     存储 / HBM / DRAM
-      packaging:  封测 / 先进封装
-      server:     AI 服务器 / 代工组装
-      network:    网络设备 / 交换
-      optical:    光通信 / 光模块
-      connector:  连接器 / 光纤材料
+      chip:      GPU / CPU / 加速器 / ASIC / 互联 / 模拟
+      memory:    存储 / HBM / DRAM / NAND
+      foundry:   晶圆代工 / 制造
+      equipment: 半导体设备（刻蚀 / 薄膜 / 量测 / 测试 / 材料）
+      eda:       EDA / 设计工具
+      server:    AI 服务器 / ODM 代工组装
+      network:   网络设备 / 高速交换
+      optical:   光通信 / 光模块
+      connector: 连接器 / 光纤 / 电源模块
+      power:     数据中心电源 / 液冷 / 电力供应 / 核电
+      cloud:     云 / neocloud / 超大规模 / AI 软件
+      reit:      数据中心 REIT
     stocks:
-      # chip
+      # chip — GPU / CPU / 加速器 / ASIC / 互联 / 模拟
       - {code: NVDA.US, name: NVIDIA, subtrack: chip}
       - {code: AVGO.US, name: Broadcom, subtrack: chip}
       - {code: AMD.US, name: AMD, subtrack: chip}
@@ -329,23 +336,55 @@ themes:
       - {code: MTSI.US, name: MACOM, subtrack: chip}
       - {code: LSCC.US, name: Lattice, subtrack: chip}
       - {code: POWI.US, name: Power Integrations, subtrack: chip}
+      - {code: SITM.US, name: SiTime, subtrack: chip}
+      - {code: QRVO.US, name: Qorvo, subtrack: chip}
+      - {code: SWKS.US, name: Skyworks, subtrack: chip}
+      - {code: SLAB.US, name: Silicon Labs, subtrack: chip}
+      - {code: CRUS.US, name: Cirrus Logic, subtrack: chip}
+      - {code: ALGM.US, name: Allegro MicroSystems, subtrack: chip}
+      - {code: SYNA.US, name: Synaptics, subtrack: chip}
 
       # memory
       - {code: MU.US, name: Micron, subtrack: memory}
+      - {code: SNDK.US, name: SanDisk, subtrack: memory}
       - {code: WDC.US, name: Western Digital, subtrack: memory}
 
-      # packaging
-      - {code: AMKR.US, name: Amkor, subtrack: packaging}
+      # foundry
+      - {code: GFS.US, name: GlobalFoundries, subtrack: foundry}
 
-      # server
+      # equipment + materials + packaging
+      - {code: AMAT.US, name: Applied Materials, subtrack: equipment}
+      - {code: LRCX.US, name: Lam Research, subtrack: equipment}
+      - {code: KLAC.US, name: KLA, subtrack: equipment}
+      - {code: TER.US, name: Teradyne, subtrack: equipment}
+      - {code: ONTO.US, name: Onto Innovation, subtrack: equipment}
+      - {code: FORM.US, name: FormFactor, subtrack: equipment}
+      - {code: ACLS.US, name: Axcelis, subtrack: equipment}
+      - {code: COHU.US, name: Cohu, subtrack: equipment}
+      - {code: ENTG.US, name: Entegris, subtrack: equipment}
+      - {code: UCTT.US, name: Ultra Clean, subtrack: equipment}
+      - {code: AEIS.US, name: Advanced Energy, subtrack: equipment}
+      - {code: MKSI.US, name: MKS Instruments, subtrack: equipment}
+      - {code: PLAB.US, name: Photronics, subtrack: equipment}
+      - {code: AMKR.US, name: Amkor, subtrack: equipment}
+
+      # eda
+      - {code: SNPS.US, name: Synopsys, subtrack: eda}
+      - {code: CDNS.US, name: Cadence, subtrack: eda}
+
+      # server / ODM
       - {code: DELL.US, name: Dell, subtrack: server}
       - {code: SMCI.US, name: Super Micro, subtrack: server}
       - {code: HPE.US, name: HPE, subtrack: server}
       - {code: SANM.US, name: Sanmina, subtrack: server}
+      - {code: JBL.US, name: Jabil, subtrack: server}
 
       # network
       - {code: ANET.US, name: Arista Networks, subtrack: network}
       - {code: CSCO.US, name: Cisco, subtrack: network}
+      - {code: HLIT.US, name: Harmonic, subtrack: network}
+      - {code: ADTN.US, name: ADTRAN, subtrack: network}
+      - {code: EXTR.US, name: Extreme Networks, subtrack: network}
 
       # optical
       - {code: COHR.US, name: Coherent, subtrack: optical}
@@ -353,9 +392,46 @@ themes:
       - {code: CIEN.US, name: Ciena, subtrack: optical}
       - {code: AAOI.US, name: Applied Optoelectronics, subtrack: optical}
 
-      # connector
+      # connector / 光纤 / 电源模块
       - {code: APH.US, name: Amphenol, subtrack: connector}
       - {code: GLW.US, name: Corning, subtrack: connector}
+      - {code: VICR.US, name: Vicor, subtrack: connector}
+
+      # power / 液冷 / 电力 / 核电
+      - {code: VRT.US, name: Vertiv, subtrack: power}
+      - {code: GEV.US, name: GE Vernova, subtrack: power}
+      - {code: CEG.US, name: Constellation Energy, subtrack: power}
+      - {code: VST.US, name: Vistra, subtrack: power}
+      - {code: TLN.US, name: Talen Energy, subtrack: power}
+      - {code: NRG.US, name: NRG Energy, subtrack: power}
+      - {code: POWL.US, name: Powell Industries, subtrack: power}
+      - {code: SMR.US, name: NuScale Power, subtrack: power}
+      - {code: OKLO.US, name: Oklo, subtrack: power}
+      - {code: BWXT.US, name: BWX Technologies, subtrack: power}
+      - {code: BE.US, name: Bloom Energy, subtrack: power}
+
+      # cloud / neocloud / 超大规模 / AI 软件
+      - {code: MSFT.US, name: Microsoft, subtrack: cloud}
+      - {code: GOOGL.US, name: Alphabet A, subtrack: cloud}
+      - {code: GOOG.US, name: Alphabet C, subtrack: cloud}
+      - {code: AMZN.US, name: Amazon, subtrack: cloud}
+      - {code: META.US, name: Meta, subtrack: cloud}
+      - {code: ORCL.US, name: Oracle, subtrack: cloud}
+      - {code: CRWV.US, name: CoreWeave, subtrack: cloud}
+      - {code: PLTR.US, name: Palantir, subtrack: cloud}
+      - {code: APP.US, name: AppLovin, subtrack: cloud}
+      - {code: SNOW.US, name: Snowflake, subtrack: cloud}
+      - {code: NOW.US, name: ServiceNow, subtrack: cloud}
+      - {code: AI.US, name: C3.ai, subtrack: cloud}
+      - {code: MDB.US, name: MongoDB, subtrack: cloud}
+      - {code: DDOG.US, name: Datadog, subtrack: cloud}
+      - {code: NET.US, name: Cloudflare, subtrack: cloud}
+      - {code: IBM.US, name: IBM, subtrack: cloud}
+      - {code: IOT.US, name: Samsara, subtrack: cloud}
+
+      # reit — 数据中心
+      - {code: EQIX.US, name: Equinix, subtrack: reit}
+      - {code: DLR.US, name: Digital Realty, subtrack: reit}
 
   us_semi_equipment:
     name: 美股 半导体设备 / 材料 / 制造
