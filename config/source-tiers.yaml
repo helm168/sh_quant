@@ -1,0 +1,145 @@
+# Thesis Engine Public Sources — 分层数据源配置
+#
+# PRD: docs/thesis-engine-public-sources-prd.md
+#
+# 这是 thesis agent 消费 evidence 时**单一真源**.
+# - tier 字段决定 agent prompt 里 evidence 的优先级 (T1 > T3 > T2 > T4)
+# - enabled flag 控制 ingest cron 是否拉这条源
+# - 加新源 = 加一个 yaml 条目 + 写 utils/source_provider 子类 + 一个 scripts/pull_*.py
+#
+# Tier 定义:
+#   T1  一手公开 (公告 / 互动易 / SEC) — 主体直接披露, 冲突时优先
+#   T2  二手转述 (财经媒体 / 公众号) — 通常转述上游, 标 secondhand + cited_source
+#   T3  行业研究机构 free (TrendForce / DigiTimes free) — 数字源头较权威
+#   T4  海外行业观察 (Stratechery / Semianalysis) — 战略视角, 英文
+#   T5  社区 / 自媒体 — v1 不接 (噪声大)
+#   T6  个人友好付费 (DigiTimes 单篇 / Substack 订阅) — 按需购买
+#   T7  受限源, 用户暂无权限 (券商研报) — 占位, 写好接入口
+
+version: 1
+
+sources:
+  # ── T1 一手公开 ────────────────────────────────────────────────
+  - id: cninfo
+    name: 巨潮资讯网公司公告
+    tier: T1
+    type: primary_disclosure
+    language: zh
+    typical_lag_days: 1
+    enabled: false  # v1 留位; phase 2 实装
+    provider: scripts.pull_cninfo
+    notes: A 股全市场强制披露, 一手
+
+  - id: shdjy
+    name: 上证 e 互动
+    tier: T1
+    type: primary_interact
+    language: zh
+    typical_lag_days: 1
+    enabled: false  # v1 留位; phase 2 实装 (API 稳定性需 probe)
+    provider: scripts.pull_shdjy
+    notes: 沪市散户问答, 公司必答
+
+  - id: szhdy
+    name: 深交所互动易
+    tier: T1
+    type: primary_interact
+    language: zh
+    typical_lag_days: 1
+    enabled: false  # v1 留位; phase 2 实装 (API 稳定性需 probe)
+    provider: scripts.pull_szhdy
+    notes: 深市散户问答
+
+  # ── T3 行业研究机构 free ─────────────────────────────────────
+  - id: trendforce_free
+    name: TrendForce Press Center
+    tier: T3
+    type: research_freemium
+    language: en
+    typical_lag_days: 2
+    enabled: true  # v1 第一个 vertical, phase 1d
+    provider: scripts.pull_trendforce
+    notes: DRAM / NAND / panel / server 周度数字; PressCenter 公开免费
+
+  # ── T2 二手转述 (公众号通过 RSSHub) ───────────────────────────
+  - id: semibcn_observer
+    name: 半导体行业观察
+    tier: T2
+    type: secondhand_media
+    language: zh
+    typical_lag_days: 2
+    enabled: false  # v1 留位
+    provider: scripts.pull_rsshub
+    provider_args:
+      rsshub_path: /wechat/mp/banbao_observer
+    default_secondhand: true
+    notes: 90% 是 DigiTimes / TrendForce 转述
+
+  - id: ijiwei
+    name: 集微网
+    tier: T2
+    type: secondhand_media
+    language: zh
+    typical_lag_days: 1
+    enabled: false  # v1 留位
+    provider: scripts.pull_rsshub
+    provider_args:
+      rsshub_path: /wechat/mp/ijiwei
+    default_secondhand: true
+
+  - id: zhidx
+    name: 芯东西
+    tier: T2
+    type: secondhand_media
+    language: zh
+    typical_lag_days: 2
+    enabled: false  # v1 留位
+    provider: scripts.pull_rsshub
+    provider_args:
+      rsshub_path: /wechat/mp/aichip001
+    default_secondhand: true
+
+  - id: yuanchuan
+    name: 远川研究所
+    tier: T2
+    type: secondhand_media
+    language: zh
+    typical_lag_days: 7
+    enabled: false  # v1 留位
+    provider: scripts.pull_rsshub
+    provider_args:
+      rsshub_path: /wechat/mp/yuanchuanyj
+    default_secondhand: true
+    notes: 周频深度编辑稿, 比快讯类公众号信号高
+
+  # ── T7 占位 — 用户拿到权限后启用 ──────────────────────────────
+  # 启用方法: enabled: true + tier 改 T1 + 写对应 provider
+  - id: csc_research
+    name: 中信建投研报 (PDF)
+    tier: T7
+    type: broker_research
+    language: zh
+    typical_lag_days: 1
+    enabled: false  # 等用户过专业投资者门槛 (300 万金融资产 + 1 年交易)
+    provider: scripts.pull_broker_research
+    notes: 启用时改 tier=T1, enabled=true. provider 复用 aborted research-report-ingestion PRD §5.1 设计
+
+  - id: digitimes_single
+    name: DigiTimes 按需单篇
+    tier: T7
+    type: paid_on_demand
+    language: en
+    typical_lag_days: 2
+    enabled: false  # thesis data_gaps 触发购买, 用户人工上传 PDF
+    provider: scripts.pull_pdf_manual
+    notes: 走通用 PDF upload 通路 (v3 实现)
+
+# ── Tier 字段元数据 (给 agent prompt 和 UI 用, 不影响 ingest 行为) ──
+tier_descriptions:
+  T1: 一手公开 (公司公告 / 互动易 / SEC) — 主体直接披露, 冲突时优先采信
+  T2: 二手转述 (财经媒体 / 公众号) — 通常转述上游, 需追溯 cited_source
+  T3: 行业研究机构 free (TrendForce / DigiTimes free) — 数字源头较权威
+  T4: 海外行业观察 (Stratechery / Semianalysis) — 战略视角, 英文转译
+  T5: 社区 / 自媒体 — 不接 (噪声 hold 不住)
+  T6: 个人按需付费 (DigiTimes 单篇 / Substack) — 数据缺口反推购买
+  T7: 受限源占位 (券商研报) — 用户拿到权限后启用
