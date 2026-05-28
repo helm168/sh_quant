@@ -382,8 +382,6 @@ themes:
       # network
       - {code: ANET.US, name: Arista Networks, subtrack: network}
       - {code: CSCO.US, name: Cisco, subtrack: network}
-      - {code: HLIT.US, name: Harmonic, subtrack: network}
-      - {code: ADTN.US, name: ADTRAN, subtrack: network}
       - {code: EXTR.US, name: Extreme Networks, subtrack: network}
 
       # optical
