@@ -265,8 +265,11 @@ def _post_feishu(webhook_url: str, payload: dict, timeout: int = 15) -> tuple[in
     return status, data
 
 
-def _post_with_retry(webhook_url: str, payload: dict, max_attempts: int = 2) -> int:
-    """重试一次. 返回 0 = OK, 1 = 失败 (含飞书 code != 0)."""
+_RETRYABLE_CODES = {11232, 9499}  # 11232=频率限制, 9499=平台繁忙; 瞬时错误, 退避后重试
+
+
+def _post_with_retry(webhook_url: str, payload: dict, max_attempts: int = 3) -> int:
+    """返回 0 = OK, 1 = 失败 (含飞书 code != 0). 限频/繁忙退避重试, 参数错误立即放弃."""
     last_err = ''
     for attempt in range(1, max_attempts + 1):
         try:
@@ -276,15 +279,15 @@ def _post_with_retry(webhook_url: str, payload: dict, max_attempts: int = 2) -> 
                 print(f'  [OK] 飞书推送成功 (attempt {attempt})')
                 return 0
             last_err = f'http={status} code={code} msg={data.get("msg")!r}'
-            # code != 0 多半是参数问题, 重试也没用
-            if code is not None and code != 0:
+            # 非限频/繁忙的 code != 0 多半是参数问题, 重试也没用
+            if code is not None and code != 0 and code not in _RETRYABLE_CODES:
                 break
         except urllib.error.URLError as ex:
             last_err = f'URLError: {ex.reason}'
         except Exception as ex:  # noqa: BLE001
             last_err = f'{ex.__class__.__name__}: {ex}'
         if attempt < max_attempts:
-            time.sleep(2)
+            time.sleep(5 * attempt)  # 5s, 10s 退避, 让限频窗口过去
     print(f'  [FAIL] 飞书推送失败: {last_err}')
     return 1
 
