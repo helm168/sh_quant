@@ -295,6 +295,104 @@ themes:
       - {code: 688216.SH, name: 气派科技, subtrack: packaging}
       - {code: 688372.SH, name: 伟测科技, subtrack: packaging}
 
+  us_ai_compute:
+    name: 美股 AI 算力链
+    desc: |
+      ai_compute 的美股映射 (FMP universe, 仅美国上市)。subtrack 口径与 A 股
+      ai_compute 对齐, 便于跨市场看同一环节的景气扩散。注意 TSM / ASML / ARM
+      等以 ADR 形式在美交易的标的不在 FMP universe, 故缺失。
+    subtracks:
+      chip:       AI 芯片 / CPU / GPU / 模拟 / 互联
+      memory:     存储 / HBM / DRAM
+      packaging:  封测 / 先进封装
+      server:     AI 服务器 / 代工组装
+      network:    网络设备 / 交换
+      optical:    光通信 / 光模块
+      connector:  连接器 / 光纤材料
+    stocks:
+      # chip
+      - {code: NVDA.US, name: NVIDIA, subtrack: chip}
+      - {code: AVGO.US, name: Broadcom, subtrack: chip}
+      - {code: AMD.US, name: AMD, subtrack: chip}
+      - {code: INTC.US, name: Intel, subtrack: chip}
+      - {code: QCOM.US, name: Qualcomm, subtrack: chip}
+      - {code: MRVL.US, name: Marvell, subtrack: chip}
+      - {code: TXN.US, name: Texas Instruments, subtrack: chip}
+      - {code: ADI.US, name: Analog Devices, subtrack: chip}
+      - {code: ON.US, name: ON Semiconductor, subtrack: chip}
+      - {code: MCHP.US, name: Microchip, subtrack: chip}
+      - {code: MPWR.US, name: Monolithic Power, subtrack: chip}
+      - {code: ALAB.US, name: Astera Labs, subtrack: chip}
+      - {code: CRDO.US, name: Credo, subtrack: chip}
+      - {code: CBRS.US, name: Cerebras, subtrack: chip}
+      - {code: RMBS.US, name: Rambus, subtrack: chip}
+      - {code: MTSI.US, name: MACOM, subtrack: chip}
+      - {code: LSCC.US, name: Lattice, subtrack: chip}
+      - {code: POWI.US, name: Power Integrations, subtrack: chip}
+
+      # memory
+      - {code: MU.US, name: Micron, subtrack: memory}
+      - {code: WDC.US, name: Western Digital, subtrack: memory}
+
+      # packaging
+      - {code: AMKR.US, name: Amkor, subtrack: packaging}
+
+      # server
+      - {code: DELL.US, name: Dell, subtrack: server}
+      - {code: SMCI.US, name: Super Micro, subtrack: server}
+      - {code: HPE.US, name: HPE, subtrack: server}
+      - {code: SANM.US, name: Sanmina, subtrack: server}
+
+      # network
+      - {code: ANET.US, name: Arista Networks, subtrack: network}
+      - {code: CSCO.US, name: Cisco, subtrack: network}
+
+      # optical
+      - {code: COHR.US, name: Coherent, subtrack: optical}
+      - {code: LITE.US, name: Lumentum, subtrack: optical}
+      - {code: CIEN.US, name: Ciena, subtrack: optical}
+      - {code: AAOI.US, name: Applied Optoelectronics, subtrack: optical}
+
+      # connector
+      - {code: APH.US, name: Amphenol, subtrack: connector}
+      - {code: GLW.US, name: Corning, subtrack: connector}
+
+  us_semi_equipment:
+    name: 美股 半导体设备 / 材料 / 制造
+    desc: |
+      semi_equipment 的美股映射。WFE 龙头 (AMAT/LRCX/KLAC) + EDA 双雄
+      (SNPS/CDNS) + 代工 (GFS) + 测试 / 材料 / 封测。subtrack 与 A 股
+      semi_equipment 对齐。
+    subtracks:
+      foundry:    晶圆代工 / 制造
+      equipment:  设备（刻蚀 / 薄膜 / 量测 / 测试 / 离子注入）
+      materials:  材料（特气 / 滤材 / CMP）
+      eda_design: EDA / IP / 设计
+      packaging:  封测 / 先进封装
+    stocks:
+      # foundry
+      - {code: GFS.US, name: GlobalFoundries, subtrack: foundry}
+
+      # equipment
+      - {code: AMAT.US, name: Applied Materials, subtrack: equipment}
+      - {code: LRCX.US, name: Lam Research, subtrack: equipment}
+      - {code: KLAC.US, name: KLA, subtrack: equipment}
+      - {code: TER.US, name: Teradyne, subtrack: equipment}
+      - {code: ONTO.US, name: Onto Innovation, subtrack: equipment}
+      - {code: FORM.US, name: FormFactor, subtrack: equipment}
+      - {code: ACLS.US, name: Axcelis, subtrack: equipment}
+      - {code: COHU.US, name: Cohu, subtrack: equipment}
+
+      # materials
+      - {code: ENTG.US, name: Entegris, subtrack: materials}
+
+      # eda_design
+      - {code: SNPS.US, name: Synopsys, subtrack: eda_design}
+      - {code: CDNS.US, name: Cadence, subtrack: eda_design}
+
+      # packaging
+      - {code: AMKR.US, name: Amkor, subtrack: packaging}
+
   consumer_electronics:
     name: 消费电子
     desc: 苹果链 / 安卓链 / VR & AR 头显 / 折叠屏。代工 + 模组 + 玻璃 + 声学 + 摄像头 + 散热。
