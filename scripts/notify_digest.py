@@ -97,9 +97,9 @@ def _line_for_signal(s: dict, deeplink_template: str) -> str:
             link = deeplink_template.format(ts_code=subj['id'], ticker=subj.get('ticker', ''))
             ident = f"[{ident}]({link})"
     elif subj['kind'] == 'sector':
-        ident = f'**{name}**'
+        ident = f'🏭 板块 **{name}**'
     else:
-        ident = f'**{subj["id"]}**'
+        ident = f'🌐 全市场 **{subj["id"]}**'
     return f'`{sev:>3}` {ident} — {title}'
 
 
