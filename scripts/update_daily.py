@@ -1012,14 +1012,32 @@ def _last_trading_day_approx(
                 if valid_days:
                     if market == 'us':
                         # 美股关键: 在 CN 时区下, "今天 CN-date" 永远拿不到当天
-                        # 美股收盘数据 — 美股 04:00 CN tz 才收盘, 而那时 CN
-                        # 已经是次日凌晨 4 点. 所以 US ready 的 last_td 永远是
-                        # max(NYSE valid_days < today_CN), 不存在"今天"分支.
-                        # (cron 8am 跑批时, 美股昨夜 04:00 已收, 数据 ready;
-                        # 若 5-25 是 Memorial Day, NYSE 没这天, 自动跳到 5-22.)
+                        # 美股收盘数据 — 美股 16:00 ET 收盘 = CN tz 次日 04:00.
+                        # 所以 US ready 的 last_td 永远是 max(NYSE valid_days <
+                        # today_CN). cron 8am Shanghai 跑批时, 美股昨夜 04:00
+                        # 已收, 数据 ready; 若 5-25 是 Memorial Day, NYSE 没这
+                        # 天, 自动跳到 5-22.
+                        #
+                        # 但仅"日历日 < today_CN"不够 — 如果在 CN 时区凌晨
+                        # 00:00-04:00 跑脚本 (例: ad-hoc 调试), today_CN 已经
+                        # 翻到次日, candidate=昨日, 但 ET 时间还在昨日盘中
+                        # (12:00-15:30 ET). 这时把盘中数据当 "已收盘" 写 parquet,
+                        # 再被 fresh-skip 卡死, 当日终值永远不补 (2026-05-26
+                        # 实际踩坑: 2074/2090 US 票被半日 snapshot 污染).
+                        # 解法: 用墙钟 ET 时间确认 candidate 已过 16:30 (留 30 分
+                        # buffer 给 FMP/Polygon 数据落地), 否则继续往前推一天.
                         prev = [d for d in valid_days if d < today]
-                        if prev:
-                            return prev[-1]
+                        now_et = pd.Timestamp.now(tz='America/New_York')
+                        while prev:
+                            cand = prev[-1]
+                            cand_close_et = pd.Timestamp(
+                                f"{cand.strftime('%Y-%m-%d')} 16:30:00"
+                            ).tz_localize('America/New_York')
+                            if now_et >= cand_close_et:
+                                return cand
+                            prev = prev[:-1]
+                        # 全 candidate 都还没收盘 (近 14 天美股全停?极端罕见) —
+                        # fall-through 到老 weekday-only 兜底, 至少不崩.
                     else:
                         # CN / HK: 收盘在 CN-date 当天, 看是否过了 after_close 阈值
                         threshold = _AFTER_CLOSE_HOUR_CN_TZ.get(market, 17)
@@ -1166,6 +1184,16 @@ def update_one(ts_code: str, lookback_days: int, cache_dir: Path, force: bool) -
             'total_rows': 0,
             'error': f'no data from any vendor (lookback={lookback_days}d)',
         }
+
+    # provenance: 标记这批行的抓取墙钟时间 (UTC). fetch_one 是所有市场 / batch +
+    # per-ticker 的唯一汇聚点, 这里 stamp 一次即覆盖全部写路径 (US/CN/HK 都有).
+    # 用途: 配套 scripts/validate_freshness.py 检测"某行的 fetched_at 落在该
+    # trade_date 的对应市场盘内 (< 收盘) → 盘中半值"的污染 (2026-05-26 踩坑).
+    # 美股已由 _last_trading_day_approx 预防, fetched_at 是 belt-and-suspenders
+    # + 可回溯审计.
+    # _data_changed 不比 fetched_at, 所以数据没变时不会因这列触发无谓重写.
+    df_new = df_new.copy()
+    df_new['fetched_at'] = pd.Timestamp.now(tz='UTC')
 
     # 合并去重
     merged = pd.concat([old, df_new], ignore_index=True) if old is not None else df_new
@@ -1504,7 +1532,12 @@ def main() -> int:
                 f'启动 Polygon Grouped Daily 预拉 (lookback={args.lookback})'
             )
             t_pre = time.time()
-            n_cached = _prefetch_polygon_us_batch(today_norm, args.lookback)
+            # 锚点用 session-aware 的 last_td_pre 而非原始 today_norm: 否则在
+            # US 盘中 (CN 当天) 跑批时, _recent_us_trading_days 会把"今天"算进
+            # 窗口, Polygon Grouped Daily 对当天返回盘中半值 → 污染缓存且被
+            # fresh-skip 卡死 (与 per-ticker 路径同源的坑). last_td_pre 已确保
+            # 是 16:30 ET 后才收盘的那一天.
+            n_cached = _prefetch_polygon_us_batch(last_td_pre, args.lookback)
             if n_cached and _POLY_BATCH_MIN_DATE is not None:
                 print(
                     f'  [us-batch] Polygon 预拉 {n_cached} 只 US 股 '
