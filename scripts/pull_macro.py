@@ -38,12 +38,20 @@ ORDER BY date ASC`，并把除 date 外每列 `Number(v)` —— 所以每个 pa
 数据源（都在 Tushare 基础会员，无 VIP）
 ─────────────────────────────────────
     index_000300.SH  index_daily(000300.SH).close
-    index_HSI/SPX    Tushare index_global(HSI/SPX).close   港股大盘 + 标普 500
+    index_HSI        Tushare index_global(HSI).close   港股大盘
     index_HSTECH     akshare.stock_hk_index_daily_em('HSTECH').latest
                      ※ Tushare 不收恒科（2020-07 才发布），走 akshare 东财
-    index_NDX        akshare.index_us_stock_sina('.NDX').close
-                     ※ Tushare index_global 只收 IXIC（纳指综合）无 NDX，
-                       走 akshare 新浪美股
+    index_SPX        FMP /stable/historical-price-eod/full?symbol=^GSPC .close
+                     ※ 原走 Tushare index_global('SPX'), 但实测 T+3 lag
+                       (5/27 仍只到 5/22). FMP STARTER 档 ^GSPC T+0 即时,
+                       NDX 在 FMP 是 402 Premium 锁住, 走 Polygon (见下).
+    index_NDX        Polygon /v2/aggs/ticker/I:NDX/range/1/day .c
+                     ※ 原走 akshare.index_us_stock_sina('.NDX') 新浪源
+                       同样 T+3 lag. Polygon Starter 档 I:NDX T+0, 但历史
+                       只回到 ~2023-02 (~830 行) — builder 必须跟旧 parquet
+                       merge 保留 2014-2023 那段 akshare 历史, 否则会被
+                       95% 行数退化 guard 兜住. SPX 在 Polygon 是 403
+                       NOT_AUTHORIZED (S&P 单独 licensing) 走 FMP (见上).
     fx_usdcnh        fx_daily(USDCNH.FXCM).bid_close → value 离岸人民币
     north_money      moneyflow_hsgt.north_money 升序累加（百万元）
                      ※ 2024-08-18 交易所停披露日度北向净买入。Tushare 之后
@@ -107,6 +115,7 @@ import time
 from pathlib import Path
 
 import pandas as pd
+import requests
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PERMISSION_KEYWORDS = ('40203', '权限', '积分', 'permission', 'points')
@@ -235,9 +244,9 @@ NORTH_HALT = pd.Timestamp('2024-08-16')  # 最后一个有效披露日
 
 
 def _build_index_global(ts_code: str):
-    """Tushare index_global builder。实测可用：HSI / SPX。
-    HSTECH（2020-07 发布）、NDX（纳斯达克 100）Tushare 基础会员都不收，
-    走 akshare 替代源——见 build_index_HSTECH / build_index_NDX。"""
+    """Tushare index_global builder。剩余可用: HSI。
+    HSTECH 走 akshare（2020-07 发布 Tushare 不收）, SPX 走 FMP, NDX 走 Polygon
+    （Tushare T+3 lag）—— 见 build_index_HSTECH / build_index_SPX / build_index_NDX。"""
     def builder(pro, start, end) -> pd.DataFrame:
         df = _paged(
             lambda s, e: pro.index_global(ts_code=ts_code, start_date=s, end_date=e),
@@ -265,18 +274,112 @@ def build_index_HSTECH(pro, start, end) -> pd.DataFrame:
     return _finalize(df, ['close'])
 
 
-def build_index_NDX(pro, start, end) -> pd.DataFrame:
-    """纳斯达克 100 — Tushare index_global 只收 IXIC（纳指综合）无 NDX，走 akshare 新浪。
+# ─── 美股指数 (US): FMP + Polygon ─────────────────────────────────────────
+# 切换原因 / 授权分布:
+#   - SPX (^GSPC):  FMP STARTER ✓ T+0   Polygon ✗ 403 NOT_AUTHORIZED
+#   - NDX (I:NDX):  FMP ✗ 402 Premium    Polygon Starter ✓ T+0 (但只回 ~2023-02)
+# 必须两家组合用. 单独某一家拿不全两只指数.
 
-    ak.index_us_stock_sina(symbol='.NDX') 返回日度，'date' / 'close' 列。
-    pro / start / end 保留签名一致但不使用（新浪一次返回全历史）。
+FMP_BASE = 'https://financialmodelingprep.com/stable'
+POLYGON_BASE = 'https://api.polygon.io'
+
+
+def _ymd_dash(yyyymmdd: str) -> str:
+    """'20100101' → '2010-01-01' (FMP / Polygon REST 都要这种格式)."""
+    s = yyyymmdd.strip()
+    return f'{s[:4]}-{s[4:6]}-{s[6:]}'
+
+
+def _merge_with_old(name: str, fresh: pd.DataFrame) -> pd.DataFrame:
+    """读 macro/<name>.parquet, 跟 fresh 合并 (overlap 取 fresh, 早于 fresh
+    最早日的旧行保留). 用于 Polygon NDX 这种新数据源历史比旧短的情况.
+
+    fresh 必须已 _finalize (有 date + 数值列). 返回的 df 也是 _finalize 形态.
     """
-    import akshare as ak
-    df = ak.index_us_stock_sina(symbol='.NDX')
-    if df is None or df.empty:
+    out_fp = CACHE_DIR / f'{name}.parquet'
+    if not out_fp.exists() or fresh.empty:
+        return fresh
+    old = pd.read_parquet(out_fp)
+    if old.empty:
+        return fresh
+    old['date'] = pd.to_datetime(old['date'])
+    # keep='last' 让 fresh 覆盖 old 重合日期 (fresh 排在 concat 末尾)
+    merged = (
+        pd.concat([old, fresh], ignore_index=True)
+        .drop_duplicates('date', keep='last')
+        .sort_values('date')
+        .reset_index(drop=True)
+    )
+    return merged
+
+
+def build_index_SPX(pro, start, end) -> pd.DataFrame:
+    """标普 500 — FMP `/stable/historical-price-eod/full?symbol=^GSPC`。
+
+    pro 不使用 (保留签名一致). start/end 是 YYYYMMDD, 转 YYYY-MM-DD 传 FMP.
+    FMP STARTER 一次返回全窗口 (实测 2010-01-01 ~ 2026-05-27 → 4123 行 < 1MB).
+    跟旧 parquet merge: SPX 历史完整覆盖, merge 主要是双保险防 FMP 偶发短返.
+    """
+    key = os.getenv('FMP_API_KEY')
+    if not key:
+        raise PermissionSkip('FMP_API_KEY 未配置 (.env)')
+    url = f'{FMP_BASE}/historical-price-eod/full'
+    params = {'symbol': '^GSPC', 'from': _ymd_dash(start), 'to': _ymd_dash(end), 'apikey': key}
+    try:
+        r = requests.get(url, params=params, timeout=30)
+    except requests.exceptions.RequestException as ex:
+        raise RuntimeError(f'FMP ^GSPC network: {ex}') from ex
+    if r.status_code == 402:
+        raise PermissionSkip(f'FMP ^GSPC 402 Premium: {r.text[:120]}')
+    if r.status_code != 200:
+        raise RuntimeError(f'FMP ^GSPC {r.status_code}: {r.text[:120]}')
+    data = r.json()
+    rows = data if isinstance(data, list) else data.get('historical', [])
+    if not rows:
         return pd.DataFrame()
+    df = pd.DataFrame(rows)
     df['date'] = pd.to_datetime(df['date'])
-    return _finalize(df, ['close'])
+    fresh = _finalize(df, ['close'])
+    return _merge_with_old('index_SPX', fresh)
+
+
+def build_index_NDX(pro, start, end) -> pd.DataFrame:
+    """纳斯达克 100 — Polygon `/v2/aggs/ticker/I:NDX/range/1/day/<from>/<to>`。
+
+    pro 不使用 (保留签名一致). start/end 是 YYYYMMDD, 转 YYYY-MM-DD 传 Polygon.
+
+    Polygon Starter 档 NDX 历史只回到 ~2023-02-15 (~830 行), 旧 parquet 有 2014-02
+    起的 akshare 数据 (~3000 行). 必须跟旧 merge, 否则会被 95% 行数退化 guard
+    兜住 (line ~727). merge keep='last' → Polygon 覆盖 2023-02 后, akshare 历史保留.
+    """
+    key = os.getenv('POLYGON_API_KEY')
+    if not key:
+        raise PermissionSkip('POLYGON_API_KEY 未配置 (.env)')
+    url = f'{POLYGON_BASE}/v2/aggs/ticker/I:NDX/range/1/day/{_ymd_dash(start)}/{_ymd_dash(end)}'
+    params = {'adjusted': 'true', 'sort': 'asc', 'limit': 50000, 'apiKey': key}
+    try:
+        r = requests.get(url, params=params, timeout=30)
+    except requests.exceptions.RequestException as ex:
+        raise RuntimeError(f'Polygon I:NDX network: {ex}') from ex
+    if r.status_code == 403:
+        raise PermissionSkip(f'Polygon I:NDX 403: {r.text[:120]}')
+    if r.status_code != 200:
+        raise RuntimeError(f'Polygon I:NDX {r.status_code}: {r.text[:120]}')
+    data = r.json()
+    rows = data.get('results') or []
+    if not rows:
+        return pd.DataFrame()
+    df = pd.DataFrame(rows)
+    # Polygon t = 该交易日 UTC 起点 ms. 转 America/New_York 后 normalize 到日期.
+    df['date'] = (
+        pd.to_datetime(df['t'], unit='ms', utc=True)
+          .dt.tz_convert('America/New_York')
+          .dt.normalize()
+          .dt.tz_localize(None)
+    )
+    df = df.rename(columns={'c': 'close'})
+    fresh = _finalize(df, ['close'])
+    return _merge_with_old('index_NDX', fresh)
 
 
 def build_fx_usdcnh(pro, start, end) -> pd.DataFrame:
@@ -644,7 +747,7 @@ BUILDERS = {
     'index_HSI': _build_index_global('HSI'),
     'index_HSTECH': build_index_HSTECH,
     'index_NDX': build_index_NDX,
-    'index_SPX': _build_index_global('SPX'),
+    'index_SPX': build_index_SPX,
     'fx_usdcnh': build_fx_usdcnh,
     'north_money': build_north_money,
     'north_hold_q': build_north_hold_q,
