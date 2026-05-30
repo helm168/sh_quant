@@ -157,6 +157,24 @@ for sub_id, sub_name in get_subtracks('ai_compute').items():
 
 `scripts/pull_theme_stocks.py` 拉 `pro.daily()` + `pro.adj_factor()` merge 后存盘，列：`trade_date / ts_code / open / high / low / close / pre_close / change / pct_chg / vol / amount / adj_factor`。**指数 / ETF 数据不受此约定影响**（`sw_daily` / `fund_daily` 接口本身不需要复权）。
 
+### 新鲜度约定 / 美股盘中半值踩坑（2026-05-26）
+
+**坑**：`update_daily.py` 的 fresh-skip 只看"parquet 里有没有 last_td 那一行"，不看那行是不是终值。一旦在美股盘中跑过一次（cron 在 CN tz，跟美股盘时段最易错位；2026-05-26 是 CN 凌晨 00:38–00:49 ad-hoc 调试触发），当天那行就被半日 OHLCV 卡死，之后两次 cron 都 fresh-skip 跳过，当日终值永远不补。**单次污染 2074/2090 只 US 票**的 5/26 行（open/high/low/close/vol/amount 全是上午半天数据）。回测吃到这根直接出错。
+
+**预防**（已固化，新动 `update_daily.py` 时别拆）：
+
+1. `_last_trading_day_approx(market='us')` 用墙钟 ET 时间确认 candidate 已过 16:30 ET（30 分 buffer 给 FMP/Polygon 落地），否则往前推一天。两条 cron（08:00 / 18:00 Shanghai）安全，ad-hoc 盘中跑也不会再写半值。
+2. Polygon Grouped Daily 批量预拉的锚点用 session-aware 的 `last_td_pre` 而非原始 `today_norm`（per-ticker 路径和批量路径都要管，少一条就漏）。
+3. **新加 column**：`update_one` 在 `fetch_one` 唯一汇聚点 stamp `fetched_at`（UTC, tz-aware）。市场无关，US/CN/HK 全自动有。**`_data_changed` 不比 fetched_at**，数据没变不会触发无谓重写。
+
+**消费端契约**：WealthPilot 的 `localDataMiddleware.ts` 读 stock parquet 用显式列投影（`SELECT trade_date, open, high, low, close, vol, amount, adj_factor` + `union_by_name=true`），多 `fetched_at` 一列不受影响。**别加列别改 dtype，要加新列前先查消费端有没有 `SELECT *` 路径**。
+
+**自检**：`scripts/validate_freshness.py --quiet` 按 ts_code 后缀挑市场（NYSE/SSE/HKEX），逐 ticker 看最新一行 `fetched_at`（转市场本地 tz）vs 该日收盘。FLAG = 盘中半值 / WARN = legacy 无 fetched_at / OK = 终值。退出码 1 = 有 FLAG。
+
+**接入 cron**：`scripts/daily_update.sh` wrapper 把 update_daily + validate_freshness 串起来，`com.helm.shquant.daily.plist` 调 wrapper 而非直调 python。validator FLAG **不**阻塞 cron（数据已写，检测失败不该掩盖日更成功），FLAG 行进日志人工处理。
+
+**修存量污染**：`python scripts/update_daily.py --market us --force`（注意 `--force` 时 `--lookback` 被忽略，`start='2015-01-01'` 全量重拉，1 call/票 ~7-10 分钟。顺带洗掉历史上任何被 fresh-skip 卡住的旧盘中行）。
+
 ## 环境
 
 - Python ≥ 3.10，依赖环境优先用 `uv` 管理。
